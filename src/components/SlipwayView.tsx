@@ -261,7 +261,13 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             await imgUploadService(
                 file,
                 newImageId,
-                (progress) => setUploadProgress(Math.round(progress)),
+                (progressMessage) => {
+                    // Extract percentage from progress message if it contains one
+                    const match = progressMessage.match(/(\d+)%/);
+                    if (match) {
+                        setUploadProgress(parseInt(match[1]));
+                    }
+                },
                 (url) => {
                     // Add new image ID to slipway's imgs array
                     if (editedSlipway) {
