@@ -3,8 +3,8 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { LatLngExpression } from 'leaflet';
 import L from 'leaflet';
 import { ref, set, push } from 'firebase/database';
-import { database } from '../firebase.ts';
-import { useAuth } from '../hooks/useAuth.ts';
+import { database } from '../firebase';
+import { useAuth } from '../hooks/useAuth';
 import 'leaflet/dist/leaflet.css';
 
 // Fix Leaflet icon issue

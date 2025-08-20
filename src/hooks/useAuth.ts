@@ -10,7 +10,7 @@ import {
     FacebookAuthProvider,
     sendPasswordResetEmail
 } from 'firebase/auth';
-import { auth } from '../firebase.ts';
+import { auth } from '../firebase';
 
 export interface AuthState {
     user: User | null;

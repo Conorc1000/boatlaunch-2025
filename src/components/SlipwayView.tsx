@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { ref, get, set, push } from 'firebase/database';
-import { database } from '../firebase.ts';
-import { Slipway, Comment } from '../types/Slipway.ts';
-import { useAuth } from '../hooks/useAuth.ts';
-import { fetchImgsService, generateImageId, validateImageFile } from '../services/fetchImgService.ts';
-import { imgUploadService } from '../services/imgUploadService.ts';
+import { database } from '../firebase';
+import { Slipway, Comment } from '../types/Slipway';
+import { useAuth } from '../hooks/useAuth';
+import { fetchImgsService, generateImageId, validateImageFile } from '../services/fetchImgService';
+import { imgUploadService } from '../services/imgUploadService';
 
 interface SlipwayViewProps {
     slipwayId: string;

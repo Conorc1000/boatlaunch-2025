@@ -3,11 +3,11 @@ import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaf
 import { LatLngExpression } from 'leaflet';
 import L from 'leaflet';
 import { ref, get } from 'firebase/database';
-import { database } from '../firebase.ts';
-import { Slipway } from '../types/Slipway.ts';
-import { useAuth } from '../hooks/useAuth.ts';
-import { fetchImgsService } from '../services/fetchImgService.ts';
-import SlipwayView from './SlipwayView.tsx';
+import { database } from '../firebase';
+import { Slipway } from '../types/Slipway';
+import { useAuth } from '../hooks/useAuth';
+import { fetchImgsService } from '../services/fetchImgService';
+import SlipwayView from './SlipwayView';
 import 'leaflet/dist/leaflet.css';
 
 // Fix Leaflet icon issue

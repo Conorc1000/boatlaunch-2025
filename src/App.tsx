@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import Map from './components/Map.tsx';
-import SlipwayView from './components/SlipwayView.tsx';
-import AddSlipway from './components/AddSlipway.tsx';
-import { useAuth } from './hooks/useAuth.ts';
+import Map from './components/Map';
+import SlipwayView from './components/SlipwayView';
+import AddSlipway from './components/AddSlipway';
+import { useAuth } from './hooks/useAuth';
 import './App.css';
 
 function App() {
