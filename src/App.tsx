@@ -11,7 +11,7 @@ function App() {
     const [addSlipwayLocation, setAddSlipwayLocation] = useState<{ latitude: number; longitude: number } | null>(null);
     const [centerOnSlipway, setCenterOnSlipway] = useState<{ id: string; latitude: number; longitude: number; name: string } | null>(null);
     const [dropdownOpen, setDropdownOpen] = useState(false);
-    const { user, loading, error, signIn, signInWithGoogle, signInWithFacebook, signUp, logout } = useAuth();
+    const { user, loading, signIn, signInWithGoogle, signInWithFacebook, signUp, logout } = useAuth();
 
     // Form states
     const [signInForm, setSignInForm] = useState({ email: '', password: '' });

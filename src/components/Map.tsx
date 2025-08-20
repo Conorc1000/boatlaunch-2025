@@ -6,7 +6,6 @@ import { ref, get } from 'firebase/database';
 import { database } from '../firebase';
 import { Slipway } from '../types/Slipway';
 import { useAuth } from '../hooks/useAuth';
-import { fetchImgsService } from '../services/fetchImgService';
 import SlipwayView from './SlipwayView';
 import 'leaflet/dist/leaflet.css';
 
@@ -63,18 +62,14 @@ const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void
 
 // Component to handle map updates and centering
 const MapUpdater: React.FC<{ centerOnSlipway: any; onCenterComplete: () => void }> = ({ centerOnSlipway, onCenterComplete }) => {
-    const map = useMapEvents({});
+    const mapRef = useRef(null);
     
     useEffect(() => {
-        console.log('MapUpdater received centerOnSlipway:', centerOnSlipway);
-        if (centerOnSlipway && map) {
-            const center: [number, number] = [centerOnSlipway.latitude, centerOnSlipway.longitude];
-            console.log('MapUpdater calling setView with:', center);
-            
-            // Force immediate view change
-            map.setView(center, 15, { 
-                animate: true,
-                duration: 1.0
+        if (centerOnSlipway) {
+            const map = mapRef.current;
+            if (map) {
+                map.setView([centerOnSlipway.latitude, centerOnSlipway.longitude], 15);
+            }
             });
             
             // Clear after animation
