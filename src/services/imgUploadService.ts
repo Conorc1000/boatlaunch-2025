@@ -1,9 +1,9 @@
 // TypeScript version of S3 image upload service
 // Note: AWS SDK will need to be installed separately: npm install aws-sdk
 
-const albumBucketName = process.env.REACT_APP_S3_PHOTOS_BUCKET;
-const bucketRegion = process.env.REACT_APP_S3_REGION || 'eu-west-1';
-const IdentityPoolId = 'eu-west-1:06a62dcc-2d0e-44e3-a400-779cc16b2ef0';
+// const albumBucketName = process.env.REACT_APP_S3_PHOTOS_BUCKET || 'default-bucket';
+// const bucketRegion = process.env.REACT_APP_S3_REGION || 'us-east-1';
+// const IdentityPoolId = process.env.REACT_APP_COGNITO_IDENTITY_POOL_ID || 'default-pool';
 
 interface UploadResponse {
     signed_request: string;

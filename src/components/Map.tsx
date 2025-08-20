@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
 import { LatLngExpression } from 'leaflet';
 import L from 'leaflet';
@@ -53,7 +53,7 @@ interface MapProps {
 // Component to handle map clicks for adding new slipways
 const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void }> = ({ onMapClick }) => {
     useMapEvents({
-        click: (e) => {
+        click: (e: any) => {
             onMapClick(e.latlng.lat, e.latlng.lng);
         },
     });
@@ -68,9 +68,8 @@ const MapUpdater: React.FC<{ centerOnSlipway: any; onCenterComplete: () => void 
         if (centerOnSlipway) {
             const map = mapRef.current;
             if (map) {
-                map.setView([centerOnSlipway.latitude, centerOnSlipway.longitude], 15);
+                (map as any).setView([centerOnSlipway.latitude, centerOnSlipway.longitude], 15);
             }
-            });
             
             // Clear after animation
             const timer = setTimeout(() => {
@@ -80,7 +79,7 @@ const MapUpdater: React.FC<{ centerOnSlipway: any; onCenterComplete: () => void 
             
             return () => clearTimeout(timer);
         }
-    }, [centerOnSlipway?.timestamp, centerOnSlipway?.latitude, centerOnSlipway?.longitude, map, onCenterComplete]);
+    }, [centerOnSlipway, onCenterComplete]);
     
     return null;
 };
