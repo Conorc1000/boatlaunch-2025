@@ -1,96 +1,165 @@
 import React, { useState, useEffect } from 'react';
-import { ref, get, set } from 'firebase/database';
+import { ref, get, set, push } from 'firebase/database';
 import { database } from '../firebase.ts';
-import { Slipway } from '../types/Slipway.ts';
-import { fetchImgsService } from '../services/fetchImgService.ts';
+import { Slipway, Comment } from '../types/Slipway.ts';
+import { useAuth } from '../hooks/useAuth.ts';
+import { fetchImgsService, generateImageId, validateImageFile } from '../services/fetchImgService.ts';
+import { imgUploadService } from '../services/imgUploadService.ts';
 
 interface SlipwayViewProps {
     slipwayId: string;
+    slipwayData?: Slipway;
     onNavigate?: (view: string) => void;
 }
 
-const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
+const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNavigate }) => {
     const [slipway, setSlipway] = useState<Slipway | null>(null);
-    const [imageUrls, setImageUrls] = useState<{src: string, id: string}[]>([]);
+    const [imageUrls, setImageUrls] = useState<{ src: string, id: string }[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
-    const [isEditing, setIsEditing] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<number>(0);
+    const [isUploading, setIsUploading] = useState<boolean>(false);
+    const [newComment, setNewComment] = useState<string>('');
+    const [newRating, setNewRating] = useState<number>(0);
+    const [isSubmittingComment, setIsSubmittingComment] = useState<boolean>(false);
     const [editedSlipway, setEditedSlipway] = useState<Slipway | null>(null);
     const [saving, setSaving] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+
+    const { user } = useAuth();
+
+    // Handle comment submission
+    const handleSubmitComment = async () => {
+        if (!newComment.trim() || !user || isSubmittingComment) return;
+
+        try {
+            setIsSubmittingComment(true);
+
+            // Create new comment object
+            const comment: Comment = {
+                id: Date.now().toString(), // Simple ID generation
+                userId: user.uid,
+                userName: user.displayName || user.email || 'Anonymous',
+                userEmail: user.email || '',
+                text: newComment.trim(),
+                timestamp: Date.now(),
+                ...(newRating > 0 && { rating: newRating })
+            };
+
+            // Update local state immediately for better UX
+            const updatedSlipway = {
+                ...slipway!,
+                comments: [...(slipway!.comments || []), comment]
+            };
+            setSlipway(updatedSlipway);
+
+            // Update Firebase
+            const commentsRef = ref(database, `slipwayDetails/${slipwayId}/comments`);
+            const updatedComments = [...(slipway!.comments || []), comment];
+            await set(commentsRef, updatedComments);
+
+            // Reset form
+            setNewComment('');
+            setNewRating(0);
+            
+        } catch (error) {
+            console.error('Error submitting comment:', error);
+            alert('Failed to submit comment. Please try again.');
+        } finally {
+            setIsSubmittingComment(false);
+        }
+    };
 
     useEffect(() => {
-        const fetchSlipwayData = async () => {
+        const initializeSlipwayData = async () => {
             try {
                 setLoading(true);
                 setError(null);
 
-                // Fetch slipway details from Firebase
-                const latLngsRef = ref(database, 'latLngs');
-                const detailsRef = ref(database, 'slipwayDetails');
+                if (slipwayData) {
+                    // Use passed data directly
+                    setSlipway(slipwayData);
+                    setEditedSlipway(slipwayData);
 
-                const [latLngsSnapshot, detailsSnapshot] = await Promise.all([
-                    get(latLngsRef),
-                    get(detailsRef)
-                ]);
+                    // Fetch and set image URLs
+                    if (slipwayData.imgs && Array.isArray(slipwayData.imgs)) {
+                        const images = fetchImgsService(slipwayData.imgs);
+                        setImageUrls(images);
+                    } else {
+                        setImageUrls([]);
+                    }
 
-                const latLngsData = latLngsSnapshot.val();
-                const detailsData = detailsSnapshot.val();
-
-                if (!latLngsData || !detailsData) {
-                    throw new Error('Failed to load slipway data');
-                }
-
-                const coords = latLngsData[slipwayId];
-                const details = detailsData[slipwayId];
-
-                if (!coords || !details) {
-                    throw new Error('Slipway not found');
-                }
-
-                const slipwayData: Slipway = {
-                    id: slipwayId,
-                    name: details.Name || 'Unknown',
-                    description: details.RampDescription || details.Description || 'No description available',
-                    latitude: parseFloat(coords[0]),
-                    longitude: parseFloat(coords[1]),
-                    facilities: details.Facilities ? details.Facilities.split(', ').filter((f: string) => f.trim()) : [],
-                    charges: details.Charges || '',
-                    nearestPlace: details.NearestPlace || '',
-                    rampType: details.RampType || '',
-                    suitability: details.Suitability || '',
-                    directions: details.Directions || '',
-                    email: details.Email || '',
-                    lowerArea: details.LowerArea || '',
-                    mobilePhoneNumber: details.MobilePhoneNumber || '',
-                    navigationalHazards: details.NavigationalHazards || '',
-                    rampDescription: details.RampDescription || '',
-                    rampLength: details.RampLength || '',
-                    upperArea: details.UpperArea || '',
-                    website: details.Website || ''
-                };
-
-                setSlipway(slipwayData);
-                setEditedSlipway(slipwayData);
-
-                // Fetch and set image URLs
-                if (details.ImageIds && Array.isArray(details.ImageIds)) {
-                    const images = fetchImgsService(details.ImageIds);
-                    setImageUrls(images);
+                    setLoading(false);
                 } else {
-                    setImageUrls([]);
-                }
+                    // Fallback: fetch from Firebase if no data passed
+                    const latLngsRef = ref(database, 'latLngs');
+                    const detailsRef = ref(database, 'slipwayDetails');
 
+                    const [latLngsSnapshot, detailsSnapshot] = await Promise.all([
+                        get(latLngsRef),
+                        get(detailsRef)
+                    ]);
+
+                    const latLngsData = latLngsSnapshot.val();
+                    const detailsData = detailsSnapshot.val();
+
+                    if (!latLngsData || !detailsData) {
+                        throw new Error('Failed to load slipway data');
+                    }
+
+                    const coords = latLngsData[slipwayId];
+                    const details = detailsData[slipwayId];
+
+                    if (!coords || !details) {
+                        throw new Error('Slipway not found');
+                    }
+
+                    const fetchedSlipwayData: Slipway = {
+                        id: slipwayId,
+                        name: details.Name || 'Unknown',
+                        description: details.Description || 'No description available',
+                        latitude: parseFloat(coords[0]),
+                        longitude: parseFloat(coords[1]),
+                        facilities: details.Facilities ? details.Facilities.split(', ').filter((f: string) => f.trim()) : [],
+                        imgs: details.imgs || details.ImageIds || [],
+                        charges: details.Charges || '',
+                        nearestPlace: details.NearestPlace || '',
+                        rampType: details.RampType || '',
+                        suitability: details.Suitability || '',
+                        directions: details.Directions || '',
+                        email: details.Email || '',
+                        lowerArea: details.LowerArea || '',
+                        mobilePhoneNumber: details.MobilePhoneNumber || '',
+                        navigationalHazards: details.NavigationalHazards || '',
+                        rampDescription: details.RampDescription || '',
+                        rampLength: details.RampLength || '',
+                        upperArea: details.UpperArea || '',
+                        website: details.Website || ''
+                    };
+
+                    setSlipway(fetchedSlipwayData);
+                    setEditedSlipway(fetchedSlipwayData);
+
+                    // Fetch and set image URLs
+                    if (fetchedSlipwayData.imgs && Array.isArray(fetchedSlipwayData.imgs)) {
+                        const images = fetchImgsService(fetchedSlipwayData.imgs);
+                        setImageUrls(images);
+                    } else {
+                        setImageUrls([]);
+                    }
+
+                    setLoading(false);
+                }
             } catch (err) {
-                console.error('Error fetching slipway data:', err);
-                setError('Failed to load slipway data. Please try again.');
-            } finally {
+                console.error('Error loading slipway data:', err);
+                setError(err instanceof Error ? err.message : 'Failed to load slipway data');
                 setLoading(false);
             }
         };
 
-        fetchSlipwayData();
-    }, [slipwayId]);
+        initializeSlipwayData();
+    }, [slipwayId, slipwayData]);
 
     const openImageModal = (index: number) => {
         setSelectedImageIndex(index);
@@ -102,7 +171,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
 
     const navigateImage = (direction: 'prev' | 'next') => {
         if (selectedImageIndex === null) return;
-        
+
         if (direction === 'prev') {
             setSelectedImageIndex(selectedImageIndex > 0 ? selectedImageIndex - 1 : imageUrls.length - 1);
         } else {
@@ -161,12 +230,70 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
         }
     };
 
-    const handleFieldChange = (field: keyof Slipway, value: any) => {
-        if (!editedSlipway) return;
-        setEditedSlipway({
-            ...editedSlipway,
-            [field]: value
-        });
+    const handleFieldChange = (field: keyof Slipway, value: string | string[]) => {
+        if (editedSlipway) {
+            setEditedSlipway({
+                ...editedSlipway,
+                [field]: value
+            });
+        }
+    };
+
+    const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        try {
+            // Validate file
+            const validation = validateImageFile(file);
+            if (!validation.valid) {
+                alert(validation.error);
+                return;
+            }
+
+            setIsUploading(true);
+            setUploadProgress(0);
+
+            // Generate new image ID
+            const newImageId = generateImageId(slipwayId);
+
+            // Upload to S3
+            await imgUploadService(
+                file,
+                newImageId,
+                (progress) => setUploadProgress(Math.round(progress)),
+                (url) => {
+                    // Add new image ID to slipway's imgs array
+                    if (editedSlipway) {
+                        const updatedImgs = [...(editedSlipway.imgs || []), newImageId];
+                        setEditedSlipway({
+                            ...editedSlipway,
+                            imgs: updatedImgs
+                        });
+
+                        // Add to local image URLs for immediate display
+                        setImageUrls(prev => [...prev, { src: url, id: newImageId }]);
+                    }
+                    setTimeout(() => {
+                        setIsUploading(false);
+                        setUploadProgress(0);
+                    }, 2000);
+                },
+                (error) => {
+                    alert(`Upload failed: ${error}`);
+                    setIsUploading(false);
+                    setUploadProgress(0);
+                }
+            );
+        } catch (error) {
+            console.error('Upload error:', error);
+            alert('Upload failed. Please try again.');
+            setIsUploading(false);
+            setUploadProgress(0);
+        }
+
+        // Reset file input
+        event.target.value = '';
     };
 
     const handleFacilitiesChange = (facilitiesText: string) => {
@@ -229,7 +356,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                     ) : (
                         <h1 style={{ margin: 0, color: '#2c3e50' }}>{slipway.name}</h1>
                     )}
-                    
+
                     <div style={{ display: 'flex', gap: '10px' }}>
                         {isEditing ? (
                             <>
@@ -297,7 +424,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                         </button>
                     </div>
                 </div>
-                
+
                 {isEditing ? (
                     <textarea
                         value={editedSlipway?.description || ''}
@@ -322,15 +449,48 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
 
             {/* Photos Section */}
             <div style={{ marginBottom: '30px' }}>
-                <h2 style={{ color: '#2c3e50', marginBottom: '20px' }}>
-                    📸 Photos ({imageUrls.length})
-                </h2>
-                
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h2 style={{ color: '#2c3e50', margin: 0 }}>
+                        📸 Photos ({imageUrls.length})
+                    </h2>
+                    
+                    {isEditing && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            {isUploading && (
+                                <span style={{ fontSize: '14px', color: '#007bff' }}>
+                                    {uploadProgress}%
+                                </span>
+                            )}
+                            <label
+                                style={{
+                                    backgroundColor: isUploading ? '#6c757d' : '#007bff',
+                                    color: 'white',
+                                    padding: '8px 16px',
+                                    borderRadius: '4px',
+                                    cursor: isUploading ? 'not-allowed' : 'pointer',
+                                    fontSize: '14px',
+                                    border: 'none',
+                                    display: 'inline-block'
+                                }}
+                            >
+                                {isUploading ? '⏳ Uploading...' : '📤 Upload Photo'}
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handlePhotoUpload}
+                                    disabled={isUploading}
+                                    style={{ display: 'none' }}
+                                />
+                            </label>
+                        </div>
+                    )}
+                </div>
+
                 {imageUrls.length === 0 ? (
-                    <div style={{ 
-                        padding: '40px', 
-                        textAlign: 'center', 
-                        backgroundColor: '#f8f9fa', 
+                    <div style={{
+                        padding: '40px',
+                        textAlign: 'center',
+                        backgroundColor: '#f8f9fa',
                         borderRadius: '8px',
                         border: '2px dashed #dee2e6'
                     }}>
@@ -341,29 +501,26 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                         </div>
                     </div>
                 ) : (
-                    <div style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', 
-                        gap: '20px' 
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+                        gap: '20px'
                     }}>
                         {imageUrls.map((image, index) => (
                             <div
                                 key={image.id}
                                 style={{
                                     position: 'relative',
+                                    cursor: 'pointer',
                                     borderRadius: '8px',
                                     overflow: 'hidden',
-                                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-                                    cursor: 'pointer',
-                                    transition: 'transform 0.2s ease'
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                                 }}
-                                onClick={() => openImageModal(index)}
-                                onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
-                                onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                onClick={() => setSelectedImageIndex(index)}
                             >
                                 <img
                                     src={image.src}
-                                    alt={`${slipway.name} - Photo ${index + 1}`}
+                                    alt={`${slipway?.name} - Photo ${index + 1}`}
                                     style={{
                                         width: '100%',
                                         height: '200px',
@@ -393,14 +550,14 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
             </div>
 
             {/* Slipway Details */}
-            <div style={{ 
-                backgroundColor: '#f8f9fa', 
-                padding: '20px', 
+            <div style={{
+                backgroundColor: '#f8f9fa',
+                padding: '20px',
                 borderRadius: '8px',
                 border: '1px solid #e9ecef'
             }}>
                 <h2 style={{ color: '#2c3e50', marginBottom: '20px' }}>Slipway Details</h2>
-                
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
                     <div>
                         {/* Facilities */}
@@ -508,34 +665,27 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                             )}
                         </div>
                     </div>
-                    
+
                     <div>
                         {/* Ramp Type */}
-                        <div style={{ margin: '10px 0' }}>
+                        <div style={{ marginBottom: '15px' }}>
                             <strong>Ramp Type:</strong>
                             {isEditing ? (
-                                <select
+                                <input
+                                    type="text"
                                     value={editedSlipway?.rampType || ''}
                                     onChange={(e) => handleFieldChange('rampType', e.target.value)}
                                     style={{
                                         marginLeft: '10px',
                                         padding: '4px 8px',
-                                        border: '2px solid #3498db',
+                                        border: '1px solid #ddd',
                                         borderRadius: '4px',
                                         fontSize: '14px',
-                                        width: '220px'
+                                        backgroundColor: 'white',
+                                        width: '200px'
                                     }}
-                                >
-                                    <option value="">Select ramp type...</option>
-                                    <option value="Concrete">Concrete</option>
-                                    <option value="Gravel">Gravel</option>
-                                    <option value="Sand">Sand</option>
-                                    <option value="Rock">Rock</option>
-                                    <option value="Timber">Timber</option>
-                                    <option value="Floating">Floating</option>
-                                    <option value="Natural">Natural</option>
-                                    <option value="Other">Other</option>
-                                </select>
+                                    placeholder="Enter ramp type (e.g., Concrete, Shingle, Sand)..."
+                                />
                             ) : (
                                 <span> {slipway.rampType}</span>
                             )}
@@ -551,23 +701,16 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                                     style={{
                                         marginLeft: '10px',
                                         padding: '4px 8px',
-                                        border: '2px solid #3498db',
+                                        border: '1px solid #ddd',
                                         borderRadius: '4px',
                                         fontSize: '14px',
                                         width: '220px'
                                     }}
                                 >
                                     <option value="">Select suitability...</option>
-                                    <option value="Small boats only">Small boats only</option>
-                                    <option value="Small to medium boats">Small to medium boats</option>
-                                    <option value="All boat sizes">All boat sizes</option>
-                                    <option value="Kayaks/Canoes">Kayaks/Canoes</option>
-                                    <option value="Jet skis">Jet skis</option>
-                                    <option value="Sailing boats">Sailing boats</option>
-                                    <option value="Motor boats">Motor boats</option>
-                                    <option value="Commercial vessels">Commercial vessels</option>
-                                    <option value="4WD access required">4WD access required</option>
-                                    <option value="Trailer boats">Trailer boats</option>
+                                    <option value="Large trailer needs a car">Large trailer needs a car</option>
+                                    <option value="Small trailer can be pushed">Small trailer can be pushed</option>
+                                    <option value="Portable Only">Portable Only</option>
                                 </select>
                             ) : (
                                 <span> {slipway.suitability}</span>
@@ -578,66 +721,84 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                         <div style={{ margin: '10px 0' }}>
                             <strong>Ramp Length:</strong>
                             {isEditing ? (
-                                <input
-                                    type="text"
+                                <select
                                     value={editedSlipway?.rampLength || ''}
                                     onChange={(e) => handleFieldChange('rampLength', e.target.value)}
                                     style={{
                                         marginLeft: '10px',
                                         padding: '4px 8px',
-                                        border: '2px solid #3498db',
+                                        border: '1px solid #ddd',
                                         borderRadius: '4px',
                                         fontSize: '14px',
-                                        width: '200px'
+                                        width: '200px',
+                                        backgroundColor: 'white'
                                     }}
-                                    placeholder="Enter ramp length..."
-                                />
+                                >
+                                    <option value="">Select ramp length...</option>
+                                    <option value="All of tidal range">All of tidal range</option>
+                                    <option value="3/4 tidal">3/4 tidal</option>
+                                    <option value="1/2 tidal">1/2 tidal</option>
+                                    <option value="1/4 tidal">1/4 tidal</option>
+                                    <option value="Non-tidal">Non-tidal</option>
+                                </select>
                             ) : (
                                 <span> {slipway.rampLength || 'Not specified'}</span>
                             )}
                         </div>
 
                         {/* Upper Area */}
-                        <div style={{ margin: '10px 0' }}>
+                        <div style={{ marginBottom: '15px' }}>
                             <strong>Upper Area:</strong>
                             {isEditing ? (
-                                <input
-                                    type="text"
+                                <select
                                     value={editedSlipway?.upperArea || ''}
                                     onChange={(e) => handleFieldChange('upperArea', e.target.value)}
                                     style={{
                                         marginLeft: '10px',
                                         padding: '4px 8px',
-                                        border: '2px solid #3498db',
+                                        border: '1px solid #ddd',
                                         borderRadius: '4px',
                                         fontSize: '14px',
-                                        width: '200px'
+                                        backgroundColor: 'white'
                                     }}
-                                    placeholder="Enter upper area details..."
-                                />
+                                >
+                                    <option value="">Select upper area...</option>
+                                    <option value="Harbour">Harbour</option>
+                                    <option value="Shingle">Shingle</option>
+                                    <option value="Concrete">Concrete</option>
+                                    <option value="Sand">Sand</option>
+                                    <option value="Rock">Rock</option>
+                                    <option value="Mud">Mud</option>
+                                </select>
                             ) : (
                                 <span> {slipway.upperArea || 'Not specified'}</span>
                             )}
                         </div>
 
                         {/* Lower Area */}
-                        <div style={{ margin: '10px 0' }}>
+                        <div style={{ marginBottom: '15px' }}>
                             <strong>Lower Area:</strong>
                             {isEditing ? (
-                                <input
-                                    type="text"
+                                <select
                                     value={editedSlipway?.lowerArea || ''}
                                     onChange={(e) => handleFieldChange('lowerArea', e.target.value)}
                                     style={{
                                         marginLeft: '10px',
                                         padding: '4px 8px',
-                                        border: '2px solid #3498db',
+                                        border: '1px solid #ddd',
                                         borderRadius: '4px',
                                         fontSize: '14px',
-                                        width: '200px'
+                                        backgroundColor: 'white'
                                     }}
-                                    placeholder="Enter lower area details..."
-                                />
+                                >
+                                    <option value="">Select lower area...</option>
+                                    <option value="Harbour">Harbour</option>
+                                    <option value="Shingle">Shingle</option>
+                                    <option value="Concrete">Concrete</option>
+                                    <option value="Sand">Sand</option>
+                                    <option value="Rock">Rock</option>
+                                    <option value="Mud">Mud</option>
+                                </select>
                             ) : (
                                 <span> {slipway.lowerArea || 'Not specified'}</span>
                             )}
@@ -669,7 +830,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                             )}
                         </div>
                     </div>
-                    
+
                     <div>
                         {/* Directions */}
                         <div style={{ marginBottom: '15px' }}>
@@ -770,6 +931,187 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                         <p style={{ margin: '10px 0' }}>
                             <strong>Coordinates:</strong> {slipway.latitude.toFixed(6)}, {slipway.longitude.toFixed(6)}
                         </p>
+
+                        {/* Comments Section - TEMPORARILY DISABLED */}
+                        {/*
+                        <div style={{ marginTop: '30px', borderTop: '2px solid #e9ecef', paddingTop: '20px' }}>
+                            <h3 style={{ margin: '0 0 20px 0', color: '#2c3e50', fontSize: '20px' }}>
+                                Comments & Reviews ({slipway.comments?.length || 0})
+                            </h3>
+
+                            {/* Add Comment Form - Only for authenticated users */}
+                            {/*
+                            {user && (
+                                <div style={{
+                                    backgroundColor: '#f8f9fa',
+                                    padding: '20px',
+                                    borderRadius: '8px',
+                                    marginBottom: '20px',
+                                    border: '1px solid #e9ecef'
+                                }}>
+                                    <h4 style={{ margin: '0 0 15px 0', color: '#495057', fontSize: '16px' }}>
+                                        Add Your Comment
+                                    </h4>
+                                    
+                                    {/* Rating Stars */}
+                                    {/*
+                                    <div style={{ marginBottom: '15px' }}>
+                                        <label style={{ display: 'block', fontSize: '14px', color: '#666', marginBottom: '8px' }}>
+                                            Rating (optional):
+                                        </label>
+                                        <div style={{ display: 'flex', gap: '5px' }}>
+                                            {[1, 2, 3, 4, 5].map((star) => (
+                                                <button
+                                                    key={star}
+                                                    type="button"
+                                                    onClick={() => setNewRating(star)}
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        fontSize: '24px',
+                                                        cursor: 'pointer',
+                                                        color: star <= newRating ? '#ffc107' : '#dee2e6',
+                                                        padding: '0',
+                                                        lineHeight: '1'
+                                                    }}
+                                                >
+                                                    ★
+                                                </button>
+                                            ))}
+                                            {newRating > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setNewRating(0)}
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        fontSize: '12px',
+                                                        cursor: 'pointer',
+                                                        color: '#6c757d',
+                                                        marginLeft: '10px'
+                                                    }}
+                                                >
+                                                    Clear
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Comment Text */}
+                                    {/*
+                                    <textarea
+                                        value={newComment}
+                                        onChange={(e) => setNewComment(e.target.value)}
+                                        placeholder="Share your experience with this slipway..."
+                                        style={{
+                                            width: '100%',
+                                            minHeight: '100px',
+                                            padding: '12px',
+                                            border: '1px solid #ced4da',
+                                            borderRadius: '4px',
+                                            fontSize: '14px',
+                                            fontFamily: 'inherit',
+                                            resize: 'vertical',
+                                            marginBottom: '15px'
+                                        }}
+                                    />
+
+                                    {/* Submit Button */}
+                                    {/*
+                                    <button
+                                        onClick={handleSubmitComment}
+                                        disabled={!newComment.trim() || isSubmittingComment}
+                                        style={{
+                                            backgroundColor: newComment.trim() && !isSubmittingComment ? '#28a745' : '#6c757d',
+                                            color: 'white',
+                                            border: 'none',
+                                            padding: '10px 20px',
+                                            borderRadius: '4px',
+                                            cursor: newComment.trim() && !isSubmittingComment ? 'pointer' : 'not-allowed',
+                                            fontSize: '14px',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        {isSubmittingComment ? 'Posting...' : 'Post Comment'}
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Comments List */}
+                            {/*
+                            <div>
+                                {slipway.comments && slipway.comments.length > 0 ? (
+                                    slipway.comments
+                                        .sort((a, b) => b.timestamp - a.timestamp)
+                                        .map((comment) => (
+                                            <div
+                                                key={comment.id}
+                                                style={{
+                                                    backgroundColor: 'white',
+                                                    border: '1px solid #e9ecef',
+                                                    borderRadius: '8px',
+                                                    padding: '15px',
+                                                    marginBottom: '15px'
+                                                }}
+                                            >
+                                                {/* Comment Header */}
+                                                {/*
+                                                <div style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    marginBottom: '10px'
+                                                }}>
+                                                    <div>
+                                                        <strong style={{ color: '#2c3e50', fontSize: '14px' }}>
+                                                            {comment.userName}
+                                                        </strong>
+                                                        {comment.rating && (
+                                                            <div style={{ display: 'inline-block', marginLeft: '10px' }}>
+                                                                {[1, 2, 3, 4, 5].map((star) => (
+                                                                    <span
+                                                                        key={star}
+                                                                        style={{
+                                                                            color: star <= comment.rating! ? '#ffc107' : '#dee2e6',
+                                                                            fontSize: '16px'
+                                                                        }}
+                                                                    >
+                                                                        ★
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <span style={{ fontSize: '12px', color: '#6c757d' }}>
+                                                        {new Date(comment.timestamp).toLocaleDateString()}
+                                                    </span>
+                                                </div>
+
+                                                {/* Comment Text */}
+                                                {/*
+                                                <p style={{
+                                                    margin: '0',
+                                                    fontSize: '14px',
+                                                    color: '#495057',
+                                                    lineHeight: '1.5'
+                                                }}>
+                                                    {comment.text}
+                                                </p>
+                                            </div>
+                                        ))
+                                ) : (
+                                    <div style={{
+                                        textAlign: 'center',
+                                        padding: '40px',
+                                        color: '#6c757d',
+                                        fontStyle: 'italic'
+                                    }}>
+                                        No comments yet. Be the first to share your experience!
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        */}
                     </div>
                 </div>
             </div>
@@ -786,19 +1128,19 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    zIndex: 1000
+                    zIndex: 3000
                 }}>
                     <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
                         <img
-                            src={imageUrls[selectedImageIndex].src}
-                            alt={`${slipway.name} - Photo ${selectedImageIndex + 1}`}
+                            src={imageUrls[selectedImageIndex]?.src}
+                            alt={`${slipway?.name} - Photo ${selectedImageIndex + 1}`}
                             style={{
                                 maxWidth: '100%',
                                 maxHeight: '100%',
                                 objectFit: 'contain'
                             }}
                         />
-                        
+
                         {/* Close button */}
                         <button
                             onClick={closeImageModal}
@@ -818,7 +1160,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                         >
                             ×
                         </button>
-                        
+
                         {/* Navigation buttons */}
                         {imageUrls.length > 1 && (
                             <>
@@ -862,7 +1204,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, onNavigate }) => {
                                 </button>
                             </>
                         )}
-                        
+
                         {/* Image counter */}
                         <div style={{
                             position: 'absolute',

@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import { ref, get, update } from 'firebase/database';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
+import { LatLngExpression } from 'leaflet';
+import L from 'leaflet';
+import { ref, get } from 'firebase/database';
 import { database } from '../firebase.ts';
 import { Slipway } from '../types/Slipway.ts';
 import { useAuth } from '../hooks/useAuth.ts';
-import { fetchImgsService, generateImageId, validateImageFile } from '../services/fetchImgService.ts';
-import { imgUploadService } from '../services/imgUploadService.ts';
+import { fetchImgsService } from '../services/fetchImgService.ts';
 import SlipwayView from './SlipwayView.tsx';
 import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
 
 // Fix Leaflet icon issue
 const iconRetinaUrl = require('leaflet/dist/images/marker-icon-2x.png');
@@ -26,21 +26,91 @@ const iconDefault = L.icon({
     shadowSize: [41, 41]
 });
 
+// Create a green icon for slipways with photos
+const iconWithPhotos = L.icon({
+    iconUrl: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 41">
+            <path fill="#28a745" stroke="#1e7e34" stroke-width="1" d="M12.5,0C5.6,0,0,5.6,0,12.5c0,12.5,12.5,28.5,12.5,28.5s12.5-16,12.5-28.5C25,5.6,19.4,0,12.5,0z"/>
+            <circle fill="white" cx="12.5" cy="12.5" r="6"/>
+            <rect fill="#28a745" x="8" y="9" width="9" height="7" rx="1"/>
+            <circle fill="white" cx="12.5" cy="12.5" r="1.5"/>
+            <rect fill="#28a745" x="9" y="8" width="2" height="1" rx="0.5"/>
+        </svg>
+    `),
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowUrl,
+    shadowSize: [41, 41]
+});
+
 L.Marker.prototype.options.icon = iconDefault;
 
 interface MapProps {
-    onNavigate?: (view: string, slipwayId?: string) => void;
+    onNavigate?: (view: string, data?: any) => void;
+    centerOnSlipway?: { id: string; latitude: number; longitude: number; name: string } | null;
 }
 
-const Map: React.FC<MapProps> = ({ onNavigate }) => {
+// Component to handle map clicks for adding new slipways
+const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void }> = ({ onMapClick }) => {
+    useMapEvents({
+        click: (e) => {
+            onMapClick(e.latlng.lat, e.latlng.lng);
+        },
+    });
+    return null;
+};
+
+// Component to handle map updates and centering
+const MapUpdater: React.FC<{ centerOnSlipway: any; onCenterComplete: () => void }> = ({ centerOnSlipway, onCenterComplete }) => {
+    const map = useMapEvents({});
+    
+    useEffect(() => {
+        console.log('MapUpdater received centerOnSlipway:', centerOnSlipway);
+        if (centerOnSlipway && map) {
+            const center: [number, number] = [centerOnSlipway.latitude, centerOnSlipway.longitude];
+            console.log('MapUpdater calling setView with:', center);
+            
+            // Force immediate view change
+            map.setView(center, 15, { 
+                animate: true,
+                duration: 1.0
+            });
+            
+            // Clear after animation
+            const timer = setTimeout(() => {
+                console.log('MapUpdater calling onCenterComplete');
+                onCenterComplete();
+            }, 1500);
+            
+            return () => clearTimeout(timer);
+        }
+    }, [centerOnSlipway?.timestamp, centerOnSlipway?.latitude, centerOnSlipway?.longitude, map, onCenterComplete]);
+    
+    return null;
+};
+
+const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
     const [slipways, setSlipways] = useState<Slipway[]>([]);
+    const [filteredSlipways, setFilteredSlipways] = useState<Slipway[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedSlipway, setSelectedSlipway] = useState<Slipway | null>(null);
-    
-    const [slipwayImages, setSlipwayImages] = useState<{[key: string]: string[]}>({});
+    const [rampLengthFilter, setRampLengthFilter] = useState<string>('');
+    const [suitabilityFilter, setSuitabilityFilter] = useState<string>('');
+    const [showFilters, setShowFilters] = useState<boolean>(false);
+    const [addSlipwayMode, setAddSlipwayMode] = useState<boolean>(false);
+    const [showSuccessMessage, setShowSuccessMessage] = useState<string | null>(null);
 
     const { user } = useAuth();
+
+    // Handle map click for adding new slipway
+    const handleMapClick = (lat: number, lng: number) => {
+        if (addSlipwayMode && onNavigate) {
+            onNavigate('addSlipway', { latitude: lat, longitude: lng });
+            setAddSlipwayMode(false);
+        }
+    };
 
     // Helper function to truncate long text
     const truncateText = (text: string, maxLength: number = 200): string => {
@@ -48,6 +118,22 @@ const Map: React.FC<MapProps> = ({ onNavigate }) => {
         return text.substring(0, maxLength) + '...';
     };
 
+    // Handle success message for saved slipways
+    useEffect(() => {
+        console.log('Map component received centerOnSlipway:', centerOnSlipway);
+        if (centerOnSlipway && centerOnSlipway.id !== 'preview') {
+            setShowSuccessMessage(`Successfully added "${centerOnSlipway.name}"!`);
+            // Auto-hide success message after 5 seconds
+            setTimeout(() => {
+                setShowSuccessMessage(null);
+            }, 5000);
+        }
+    }, [centerOnSlipway]);
+
+    // Clear centering state after animation complete
+    const handleCenterComplete = () => {
+        // This will be handled by App.tsx state management
+    };
 
     useEffect(() => {
         const fetchSlipways = async () => {
@@ -74,32 +160,37 @@ const Map: React.FC<MapProps> = ({ onNavigate }) => {
                         const details = detailsData[slipwayId];
 
                         if (coords && details && coords.length >= 2) {
+
                             const slipway: Slipway = {
                                 id: slipwayId,
                                 name: details.Name || 'Unknown',
-                                description: details.RampDescription || details.Description || 'No description available',
+                                description: details.Description || 'No description available',
                                 latitude: parseFloat(coords[0]),
                                 longitude: parseFloat(coords[1]),
                                 facilities: details.Facilities ? details.Facilities.split(', ').filter((f: string) => f.trim()) : [],
+                                imgs: details.imgs || details.ImageIds || [],
+                                comments: details.comments || [],
                                 charges: details.Charges || 'Unknown',
                                 nearestPlace: details.NearestPlace || 'Unknown',
                                 rampType: details.RampType || 'Unknown',
-                                suitability: details.Suitability || 'Unknown'
+                                suitability: details.Suitability || 'Unknown',
+                                directions: details.Directions || '',
+                                email: details.Email || '',
+                                lowerArea: details.LowerArea || '',
+                                mobilePhoneNumber: details.MobilePhoneNumber || '',
+                                navigationalHazards: details.NavigationalHazards || '',
+                                rampDescription: details.RampDescription || '',
+                                rampLength: details.RampLength || '',
+                                upperArea: details.UpperArea || '',
+                                website: details.Website || ''
                             };
-
-                            // Store image IDs if they exist
-                            if (details.ImageIds && Array.isArray(details.ImageIds)) {
-                                setSlipwayImages(prev => ({
-                                    ...prev,
-                                    [slipwayId]: details.ImageIds
-                                }));
-                            }
 
                             slipwayData.push(slipway);
                         }
                     });
 
                     setSlipways(slipwayData);
+                    setFilteredSlipways(slipwayData);
                     setError(null);
                     console.log(`Loaded ${slipwayData.length} slipways from Firebase`);
                 } else {
@@ -141,6 +232,45 @@ const Map: React.FC<MapProps> = ({ onNavigate }) => {
         fetchSlipways();
     }, []);
 
+    // Filter slipways based on selected filters
+    useEffect(() => {
+        let filtered = slipways;
+
+        if (rampLengthFilter) {
+            filtered = filtered.filter(slipway => 
+                slipway.rampLength && slipway.rampLength === rampLengthFilter
+            );
+        }
+
+        if (suitabilityFilter) {
+            filtered = filtered.filter(slipway => {
+                if (!slipway.suitability) return false;
+                
+                // Hierarchical filtering logic
+                if (suitabilityFilter === "Portable Only") {
+                    // Portable Only includes all suitability types
+                    return true;
+                } else if (suitabilityFilter === "Small trailer can be pushed") {
+                    // Small trailer includes itself and Large trailer
+                    return slipway.suitability === "Small trailer can be pushed" || 
+                           slipway.suitability === "Large trailer needs a car";
+                } else if (suitabilityFilter === "Large trailer needs a car") {
+                    // Large trailer only includes itself
+                    return slipway.suitability === "Large trailer needs a car";
+                }
+                
+                return false;
+            });
+        }
+
+        setFilteredSlipways(filtered);
+    }, [slipways, rampLengthFilter, suitabilityFilter]);
+
+    const clearFilters = () => {
+        setRampLengthFilter('');
+        setSuitabilityFilter('');
+    };
+
 
 
 
@@ -161,36 +291,222 @@ const Map: React.FC<MapProps> = ({ onNavigate }) => {
     }
 
     return (
-        <>
-            <div style={{ width: '100%', height: '80vh', borderRadius: '10px', overflow: 'hidden' }}>
+        <div style={{ position: 'relative', width: '100%', height: '80vh', borderRadius: '10px', overflow: 'hidden' }}>
+            {/* Top buttons */}
+            <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 1001, display: 'flex', gap: '10px' }}>
+                {/* Add Slipway Button */}
+                {user && (
+                    <button
+                        onClick={() => setAddSlipwayMode(!addSlipwayMode)}
+                        style={{
+                            backgroundColor: addSlipwayMode ? '#e74c3c' : '#27ae60',
+                            color: 'white',
+                            border: 'none',
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = addSlipwayMode ? '#c0392b' : '#219a52'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = addSlipwayMode ? '#e74c3c' : '#27ae60'}
+                    >
+                        {addSlipwayMode ? '✕ Cancel' : '➕ Add Slipway'}
+                    </button>
+                )}
+                
+                {/* Filter Toggle Button */}
+                <button
+                    onClick={() => setShowFilters(!showFilters)}
+                    style={{
+                        backgroundColor: '#3498db',
+                        color: 'white',
+                        border: 'none',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2980b9'}
+                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#3498db'}
+                >
+                    {showFilters ? '🔍 Hide Filters' : '🔍 Show Filters'}
+                </button>
+            </div>
+
+            {/* Add Slipway Mode Indicator */}
+            {addSlipwayMode && (
+                <div style={{
+                    position: 'absolute',
+                    top: '60px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 1001,
+                    backgroundColor: '#27ae60',
+                    color: 'white',
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                }}>
+                    📍 Click on the map to add a new slipway
+                </div>
+            )}
+
+            {/* Success Message */}
+            {showSuccessMessage && (
+                <div style={{
+                    position: 'absolute',
+                    top: '60px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 1001,
+                    backgroundColor: '#28a745',
+                    color: 'white',
+                    padding: '12px 24px',
+                    borderRadius: '6px',
+                    fontSize: '16px',
+                    fontWeight: '500',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                    border: '1px solid #1e7e34'
+                }}>
+                    ✅ {showSuccessMessage}
+                </div>
+            )}
+
+            {/* Filter Controls */}
+            {showFilters && (
+                <div style={{
+                    position: 'absolute',
+                    top: '50px',
+                    right: '10px',
+                    zIndex: 1000,
+                    backgroundColor: 'white',
+                    padding: '15px',
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                    border: '1px solid #ddd',
+                    minWidth: '300px'
+                }}>
+                    <h4 style={{ margin: '0 0 10px 0', color: '#2c3e50', fontSize: '16px' }}>Filter Slipways</h4>
+                
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                    <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                            Ramp Length
+                        </label>
+                        <select
+                            value={rampLengthFilter}
+                            onChange={(e) => setRampLengthFilter(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '6px 8px',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                fontSize: '14px',
+                                backgroundColor: 'white'
+                            }}
+                        >
+                            <option value="">All ramp lengths</option>
+                            <option value="All of tidal range">All of tidal range</option>
+                            <option value="3/4 tidal">3/4 tidal</option>
+                            <option value="1/2 tidal">1/2 tidal</option>
+                            <option value="1/4 tidal">1/4 tidal</option>
+                            <option value="Non-tidal">Non-tidal</option>
+                        </select>
+                    </div>
+                    
+                    <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                            Suitability
+                        </label>
+                        <select
+                            value={suitabilityFilter}
+                            onChange={(e) => setSuitabilityFilter(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '6px 8px',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                fontSize: '14px',
+                                backgroundColor: 'white'
+                            }}
+                        >
+                            <option value="">All suitability types</option>
+                            <option value="Large trailer needs a car">Large trailer needs a car</option>
+                            <option value="Small trailer can be pushed">Small trailer can be pushed</option>
+                            <option value="Portable Only">Portable Only</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', color: '#666' }}>
+                        Showing {filteredSlipways.length} of {slipways.length} slipways
+                    </span>
+                    
+                    {(rampLengthFilter || suitabilityFilter) && (
+                        <button
+                            onClick={clearFilters}
+                            style={{
+                                backgroundColor: '#6c757d',
+                                color: 'white',
+                                border: 'none',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Clear Filters
+                        </button>
+                    )}
+                </div>
+                </div>
+            )}
+
+            <div style={{ width: '100%', height: '100%' }}>
                 {error && (
                     <div style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '10px',
+                        backgroundColor: '#f8d7da',
+                        color: '#721c24',
                         padding: '10px',
-                        backgroundColor: '#fff3cd',
-                        color: '#856404',
                         borderRadius: '5px',
-                        marginBottom: '10px'
+                        zIndex: 1000,
+                        border: '1px solid #f5c6cb',
+                        maxWidth: '300px'
                     }}>
-                        {error} - Using sample data
+                        {error}
                     </div>
                 )}
                 <MapContainer
-                    center={slipways.length > 0 ? [slipways[0].latitude, slipways[0].longitude] : [51.505, -0.09]}
-                    zoom={13}
-                    style={{ height: '100%', width: '100%' }}
+                    {...({
+                        center: filteredSlipways.length > 0 ? [filteredSlipways[0].latitude, filteredSlipways[0].longitude] : [51.505, -0.09],
+                        zoom: 13,
+                        style: { height: '100%', width: '100%' }
+                    } as any)}
                 >
                     <TileLayer
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     />
-                    {slipways.map((slipway) => {
-                        const imageIds = slipwayImages[slipway.id] || [];
-                        const photoCount = imageIds.length;
-                        
+                    <MapClickHandler onMapClick={handleMapClick} />
+                    <MapUpdater centerOnSlipway={centerOnSlipway} onCenterComplete={handleCenterComplete} />
+                    {filteredSlipways.map((slipway) => {
+                        const photoCount = slipway.imgs?.length || 0
+
                         return (
                             <Marker
                                 key={slipway.id}
-                                position={[slipway.latitude, slipway.longitude]}
+                                position={[slipway.latitude, slipway.longitude] as LatLngExpression}
+                                {...(photoCount > 0 ? { icon: iconWithPhotos } : {})}
                             >
                                 <Popup>
                                     <div style={{ minWidth: '250px' }}>
@@ -225,78 +541,78 @@ const Map: React.FC<MapProps> = ({ onNavigate }) => {
                                             </div>
                                         </div>
 
-                                    {slipway.facilities && slipway.facilities.length > 0 && (
-                                        <div style={{ marginBottom: '10px' }}>
-                                            <strong>Facilities:</strong>
-                                            <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
-                                                {slipway.facilities.map((facility, index) => (
-                                                    <li key={index}>{truncateText(facility, 80)}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
+                                        {slipway.facilities && slipway.facilities.length > 0 && (
+                                            <div style={{ marginBottom: '10px' }}>
+                                                <strong>Facilities:</strong>
+                                                <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
+                                                    {slipway.facilities.map((facility, index) => (
+                                                        <li key={index}>{truncateText(facility, 80)}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
 
-                                    {slipway.charges && (
-                                        <p style={{ margin: '5px 0' }}><strong>Charges:</strong> {truncateText(slipway.charges, 100)}</p>
-                                    )}
-                                    {slipway.nearestPlace && (
-                                        <p style={{ margin: '5px 0' }}><strong>Nearest Place:</strong> {truncateText(slipway.nearestPlace, 100)}</p>
-                                    )}
-                                    {slipway.rampType && (
-                                        <p style={{ margin: '5px 0' }}><strong>Ramp Type:</strong> {truncateText(slipway.rampType, 100)}</p>
-                                    )}
-                                    {slipway.suitability && (
-                                        <p style={{ margin: '5px 0' }}><strong>Suitability:</strong> {truncateText(slipway.suitability, 150)}</p>
-                                    )}
-                                    {(slipway as any).upperArea && (
-                                        <p style={{ margin: '5px 0' }}><strong>Upper Area:</strong> {truncateText((slipway as any).upperArea, 100)}</p>
-                                    )}
-                                    {(slipway as any).lowerArea && (
-                                        <p style={{ margin: '5px 0' }}><strong>Lower Area:</strong> {truncateText((slipway as any).lowerArea, 100)}</p>
-                                    )}
-                                    {(slipway as any).rampLength && (
-                                        <p style={{ margin: '5px 0' }}><strong>Ramp Length:</strong> {truncateText((slipway as any).rampLength, 100)}</p>
-                                    )}
-                                    {(slipway as any).website && (
-                                        <p style={{ margin: '5px 0' }}><strong>Website:</strong> <a href={(slipway as any).website} target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>{truncateText((slipway as any).website, 50)}</a></p>
-                                    )}
-                                    {(slipway as any).directions && (
-                                        <div style={{ margin: '5px 0' }}>
-                                            <strong>Directions:</strong>
-                                            <p style={{ margin: '2px 0', fontSize: '13px', color: '#666' }}>{truncateText((slipway as any).directions)}</p>
-                                        </div>
-                                    )}
-                                    {(slipway as any).navigationalHazards && (
-                                        <div style={{ margin: '5px 0' }}>
-                                            <strong>Navigational Hazards:</strong>
-                                            <p style={{ margin: '2px 0', fontSize: '13px', color: '#d32f2f' }}>{truncateText((slipway as any).navigationalHazards)}</p>
-                                        </div>
-                                    )}
+                                        {slipway.charges && (
+                                            <p style={{ margin: '5px 0' }}><strong>Charges:</strong> {truncateText(slipway.charges, 100)}</p>
+                                        )}
+                                        {slipway.nearestPlace && (
+                                            <p style={{ margin: '5px 0' }}><strong>Nearest Place:</strong> {truncateText(slipway.nearestPlace, 100)}</p>
+                                        )}
+                                        {slipway.rampType && (
+                                            <p style={{ margin: '5px 0' }}><strong>Ramp Type:</strong> {truncateText(slipway.rampType, 100)}</p>
+                                        )}
+                                        {slipway.suitability && (
+                                            <p style={{ margin: '5px 0' }}><strong>Suitability:</strong> {truncateText(slipway.suitability, 150)}</p>
+                                        )}
+                                        {(slipway as any).upperArea && (
+                                            <p style={{ margin: '5px 0' }}><strong>Upper Area:</strong> {truncateText((slipway as any).upperArea, 100)}</p>
+                                        )}
+                                        {(slipway as any).lowerArea && (
+                                            <p style={{ margin: '5px 0' }}><strong>Lower Area:</strong> {truncateText((slipway as any).lowerArea, 100)}</p>
+                                        )}
+                                        {(slipway as any).rampLength && (
+                                            <p style={{ margin: '5px 0' }}><strong>Ramp Length:</strong> {truncateText((slipway as any).rampLength, 100)}</p>
+                                        )}
+                                        {(slipway as any).website && (
+                                            <p style={{ margin: '5px 0' }}><strong>Website:</strong> <a href={(slipway as any).website} target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>{truncateText((slipway as any).website, 50)}</a></p>
+                                        )}
+                                        {(slipway as any).directions && (
+                                            <div style={{ margin: '5px 0' }}>
+                                                <strong>Directions:</strong>
+                                                <p style={{ margin: '2px 0', fontSize: '13px', color: '#666' }}>{truncateText((slipway as any).directions)}</p>
+                                            </div>
+                                        )}
+                                        {(slipway as any).navigationalHazards && (
+                                            <div style={{ margin: '5px 0' }}>
+                                                <strong>Navigational Hazards:</strong>
+                                                <p style={{ margin: '2px 0', fontSize: '13px', color: '#d32f2f' }}>{truncateText((slipway as any).navigationalHazards)}</p>
+                                            </div>
+                                        )}
 
-                                    <div style={{ marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #eee' }}>
-                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                            <button
-                                                onClick={() => setSelectedSlipway(slipway)}
-                                                style={{
-                                                    backgroundColor: '#28a745',
-                                                    color: 'white',
-                                                    border: 'none',
-                                                    padding: '8px 16px',
-                                                    borderRadius: '4px',
-                                                    cursor: 'pointer',
-                                                    fontSize: '14px',
-                                                    fontWeight: '500'
-                                                }}
-                                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#218838'}
-                                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#28a745'}
-                                            >
-                                                👁️ View Details
-                                            </button>
+                                        <div style={{ marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #eee' }}>
+                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                <button
+                                                    onClick={() => setSelectedSlipway(slipway)}
+                                                    style={{
+                                                        backgroundColor: '#28a745',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        padding: '8px 16px',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '14px',
+                                                        fontWeight: '500'
+                                                    }}
+                                                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#218838'}
+                                                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#28a745'}
+                                                >
+                                                    👁️ View Details
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            </Popup>
-                        </Marker>
+                                </Popup>
+                            </Marker>
                         );
                     })}
                 </MapContainer>
@@ -314,7 +630,7 @@ const Map: React.FC<MapProps> = ({ onNavigate }) => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    zIndex: 10000
+                    zIndex: 9999
                 }}>
                     <div style={{
                         backgroundColor: 'white',
@@ -341,7 +657,7 @@ const Map: React.FC<MapProps> = ({ onNavigate }) => {
                                 fontSize: '18px',
                                 fontWeight: 'bold',
                                 color: '#666',
-                                zIndex: 10001,
+                                zIndex: 10000,
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center'
@@ -351,23 +667,23 @@ const Map: React.FC<MapProps> = ({ onNavigate }) => {
                         >
                             ×
                         </button>
-                        
+
                         {/* SlipwayView component */}
                         <div style={{ height: '90vh', overflow: 'auto' }}>
-                            <SlipwayView 
-                                slipwayId={selectedSlipway.id} 
+                            <SlipwayView
+                                slipwayId={selectedSlipway.id}
+                                slipwayData={selectedSlipway}
                                 onNavigate={(view: string) => {
                                     if (view === 'map') {
                                         setSelectedSlipway(null);
                                     }
-                                }} 
+                                }}
                             />
                         </div>
                     </div>
                 </div>
             )}
-
-        </>
+        </div>
     );
 };
 

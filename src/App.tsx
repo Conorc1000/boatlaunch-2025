@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import Map from './components/Map.tsx';
 import SlipwayView from './components/SlipwayView.tsx';
+import AddSlipway from './components/AddSlipway.tsx';
 import { useAuth } from './hooks/useAuth.ts';
 import './App.css';
 
 function App() {
     const [activeView, setActiveView] = useState('map');
     const [selectedSlipwayId, setSelectedSlipwayId] = useState<string | null>(null);
+    const [addSlipwayLocation, setAddSlipwayLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+    const [centerOnSlipway, setCenterOnSlipway] = useState<{ id: string; latitude: number; longitude: number; name: string } | null>(null);
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const { user, loading, error, signIn, signInWithGoogle, signInWithFacebook, signUp, logout } = useAuth();
 
@@ -18,11 +21,41 @@ function App() {
     const [formError, setFormError] = useState('');
     const [formSuccess, setFormSuccess] = useState('');
 
-    const handleMenuClick = (view: string, slipwayId?: string) => {
+    const handleMenuClick = (view: string, data?: any) => {
+        console.log('handleMenuClick called with:', { view, data });
+        
         setActiveView(view);
-        if (slipwayId) {
-            setSelectedSlipwayId(slipwayId);
+        
+        if (data) {
+            if (typeof data === 'string') {
+                // Legacy support for slipwayId
+                setSelectedSlipwayId(data);
+                setCenterOnSlipway(null); // Clear centering for non-centering navigation
+            } else if (data.centerOnSlipway) {
+                // Center map on newly added slipway - add timestamp to force re-render
+                console.log('Setting centerOnSlipway:', data.centerOnSlipway);
+                const centerData = {
+                    ...data.centerOnSlipway,
+                    timestamp: Date.now() // Force unique object
+                };
+                // Clear first, then set new data
+                setCenterOnSlipway(null);
+                setTimeout(() => {
+                    setCenterOnSlipway(centerData);
+                }, 10);
+            } else if (data.latitude && data.longitude) {
+                // Location data for addSlipway
+                setAddSlipwayLocation(data);
+                setCenterOnSlipway(null); // Clear centering for non-centering navigation
+            } else if (data.slipwayId) {
+                setSelectedSlipwayId(data.slipwayId);
+                setCenterOnSlipway(null); // Clear centering for non-centering navigation
+            }
+        } else {
+            // No data provided - clear centering state
+            setCenterOnSlipway(null);
         }
+        
         setDropdownOpen(false);
         setFormError(''); // Clear any form errors when switching views
         setFormSuccess(''); // Clear success messages
@@ -133,7 +166,7 @@ function App() {
     const renderContent = () => {
         switch (activeView) {
             case 'map':
-                return <Map onNavigate={handleMenuClick} />;
+                return <Map onNavigate={handleMenuClick} centerOnSlipway={centerOnSlipway} />;
             case 'slipway-view':
                 return selectedSlipwayId ? (
                     <SlipwayView slipwayId={selectedSlipwayId} onNavigate={handleMenuClick} />
@@ -363,34 +396,20 @@ function App() {
                         </div>
                     </div>
                 );
+            case 'addSlipway':
+                console.log('Rendering AddSlipway with addSlipwayLocation:', addSlipwayLocation);
+                return (
+                    <AddSlipway 
+                        initialLocation={addSlipwayLocation} 
+                        onNavigate={handleMenuClick} 
+                    />
+                );
             case 'add-slipway':
                 return (
-                    <div className="content-section">
-                        <h2>Add New Slipway</h2>
-                        {user ? (
-                            <>
-                                <p>Help the community by adding a new boat launch location.</p>
-                                <form className="slipway-form">
-                                    <input type="text" placeholder="Slipway Name" required />
-                                    <input type="text" placeholder="Nearest Place" required />
-                                    <textarea placeholder="Description" rows={4} required></textarea>
-                                    <input type="text" placeholder="Latitude" required />
-                                    <input type="text" placeholder="Longitude" required />
-                                    <input type="text" placeholder="Ramp Type" />
-                                    <input type="text" placeholder="Charges" />
-                                    <textarea placeholder="Facilities" rows={3}></textarea>
-                                    <button type="submit">Add Slipway</button>
-                                </form>
-                            </>
-                        ) : (
-                            <>
-                                <p>Please sign in to add new slipways to the database.</p>
-                                <button onClick={() => handleMenuClick('signin')} className="signin-prompt">
-                                    Sign In to Add Slipway
-                                </button>
-                            </>
-                        )}
-                    </div>
+                    <AddSlipway 
+                        initialLocation={addSlipwayLocation} 
+                        onNavigate={handleMenuClick} 
+                    />
                 );
             case 'about':
                 return (

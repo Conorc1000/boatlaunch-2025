@@ -90,7 +90,7 @@
     border-radius: 8px;
     box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
     min-width: 200px;
-    z-index: 1000;
+    z-index: 10002;
     margin-top: 0.5rem;
     overflow: hidden;
     animation: dropdownFadeIn 0.3s ease;

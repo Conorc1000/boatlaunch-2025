@@ -1,14 +1,18 @@
-# Slipway Map - React Leaflet Project
+# Boatlaunch - UK Slipway Database
 
-A React application featuring an interactive map with slipway markers using React Leaflet and OpenStreetMap tiles.
+A comprehensive React application for finding and managing boat launch locations across the UK. Features an interactive map with detailed slipway information, user authentication, and community-driven content.
 
 ## Features
 
-- 🗺️ Interactive map powered by React Leaflet
-- 📍 Hardcoded slipway markers with popup information
-- 🎨 Modern UI with gradient background and rounded corners
-- 📱 Responsive design
-- 🔧 TypeScript support
+- 🗺️ Interactive map powered by React Leaflet with OpenStreetMap tiles
+- 🔥 Firebase integration for real-time data and authentication
+- 📍 Dynamic slipway markers with detailed popup information
+- 🖼️ Photo upload and management for slipways
+- 👤 User authentication (Email, Google, Facebook)
+- ✏️ Inline editing of slipway details for authenticated users
+- 🔍 Modal-based detail view preserving map state
+- 📱 Responsive design with modern UI
+- 🔧 Full TypeScript support
 
 ## Getting Started
 
@@ -19,10 +23,28 @@ A React application featuring an interactive map with slipway markers using Reac
 
 ### Installation
 
-1. Clone the repository or navigate to the project directory
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Conorc1000/Boatlaunch-2025-Windsurf.git
+   cd windsurf-project
+   ```
+
 2. Install dependencies:
    ```bash
    npm install
+   ```
+
+3. Set up Firebase configuration:
+   - Create a `.env` file in the root directory
+   - Add your Firebase configuration variables:
+   ```
+   REACT_APP_FIREBASE_API_KEY=your_api_key
+   REACT_APP_FIREBASE_AUTH_DOMAIN=your_auth_domain
+   REACT_APP_FIREBASE_DATABASE_URL=your_database_url
+   REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+   REACT_APP_FIREBASE_STORAGE_BUCKET=your_storage_bucket
+   REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+   REACT_APP_FIREBASE_APP_ID=your_app_id
    ```
 
 ### Running the Application
@@ -39,25 +61,48 @@ The application will open in your browser at `http://localhost:3000`.
 ```
 windsurf-project/
 ├── public/
-│   └── index.html          # HTML template
+│   └── index.html              # HTML template
 ├── src/
 │   ├── components/
-│   │   └── Map.tsx         # React Leaflet map component
-│   ├── App.tsx             # Main application component
-│   ├── App.css             # Application styles
-│   ├── index.tsx           # Application entry point
-│   ├── index.css           # Global styles
-│   └── react-app-env.d.ts  # TypeScript declarations
-├── package.json            # Dependencies and scripts
-└── README.md              # This file
+│   │   ├── Map.tsx             # Interactive map with modal functionality
+│   │   └── SlipwayView.tsx     # Detailed slipway view with inline editing
+│   ├── hooks/
+│   │   └── useAuth.ts          # Firebase authentication hook
+│   ├── services/
+│   │   ├── fetchImgService.ts  # Image fetching and validation
+│   │   └── imgUploadService.ts # Image upload functionality
+│   ├── types/
+│   │   └── Slipway.ts          # TypeScript interfaces
+│   ├── App.tsx                 # Main application with navigation
+│   ├── App.css                 # Application styles
+│   ├── firebase.ts             # Firebase configuration
+│   ├── index.tsx               # Application entry point
+│   ├── index.css               # Global styles
+│   └── react-app-env.d.ts      # TypeScript declarations
+├── .env                        # Environment variables (not tracked)
+├── .gitignore                  # Git ignore rules
+├── package.json                # Dependencies and scripts
+└── README.md                   # This file
 ```
 
-## Map Features
+## Key Components
 
-- **Interactive Map**: Pan and zoom functionality
-- **Markers**: Three sample slipway locations with popups
-- **Styling**: 80vh height with rounded corners (10px radius)
-- **Icons**: Properly configured Leaflet marker icons
+### Map Component
+- **Interactive Map**: Pan and zoom functionality with state preservation
+- **Dynamic Markers**: Firebase-sourced slipway locations with detailed popups
+- **Modal Integration**: View details without losing map position
+- **Photo Integration**: Display photo counts and quick access
+
+### SlipwayView Component
+- **Inline Editing**: Edit slipway details directly in the interface
+- **Photo Management**: Upload and manage slipway images
+- **User Authentication**: Secure editing for logged-in users
+- **Comprehensive Data**: All slipway details including facilities, charges, directions
+
+### Authentication System
+- **Multiple Sign-in Options**: Email, Google, and Facebook authentication
+- **User Management**: Secure user sessions and permissions
+- **Protected Actions**: Editing requires authentication
 
 ## Available Scripts
 
@@ -68,26 +113,36 @@ windsurf-project/
 
 ## Technologies Used
 
-- React 18.2.0
-- TypeScript 4.7.4
-- React Leaflet 5.0.0
-- Leaflet 1.9.4
-- Create React App
+- **Frontend**: React 18.2.0 with TypeScript
+- **Mapping**: React Leaflet 5.0.0 + Leaflet 1.9.4
+- **Backend**: Firebase Realtime Database
+- **Authentication**: Firebase Auth (Email, Google, Facebook)
+- **Storage**: Firebase Storage for images
+- **Build Tool**: Create React App
+- **Styling**: CSS with modern responsive design
 
-## Customization
+## Usage
 
-To add more slipway markers, edit the `slipways` array in `src/components/Map.tsx`:
+### For Users
+1. **Browse Map**: Explore slipway locations across the UK
+2. **View Details**: Click "View Details" to see comprehensive information
+3. **Sign Up/In**: Create an account to contribute to the database
+4. **Edit Information**: Authenticated users can update slipway details
+5. **Upload Photos**: Add images to help other boaters
 
-```typescript
-const slipways = [
-  {
-    position: [latitude, longitude],
-    name: 'Your Slipway Name',
-    description: 'Your slipway description'
-  },
-  // Add more markers here
-];
-```
+### For Developers
+- Slipway data is stored in Firebase Realtime Database
+- Images are managed through Firebase Storage
+- Authentication handles user permissions
+- The app uses TypeScript interfaces for type safety
+
+## Contributing
+
+Contributions are welcome! Please ensure:
+- TypeScript compliance
+- Proper error handling
+- User authentication for data modifications
+- Responsive design principles
 
 ## License
 
