@@ -1,6 +1,6 @@
 // Test file to verify firebase import works
-import { db } from './firebase';
+import { database } from './firebase';
 
-console.log('Firebase db:', db);
+console.log('Firebase database:', database);
 
-export default db;
+export default database;
