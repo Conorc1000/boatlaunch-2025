@@ -44,7 +44,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                 userEmail: user.email || '',
                 text: commentText.trim(),
                 timestamp: Date.now(),
-                ...(rating && rating > 0 && { rating })
+                ...(rating && rating > 0 && { rating: rating })
             };
 
             // Update local state immediately for better UX
@@ -526,7 +526,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                             >
                                 <img
                                     src={image.src}
-                                    alt={`${slipway?.name} - View ${index + 1}`}
+                                    alt={`${slipway?.name} - Photo ${index + 1}`}
                                     style={{
                                         width: '100%',
                                         height: '200px',
@@ -1139,7 +1139,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                     <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
                         <img
                             src={imageUrls[selectedImageIndex]?.src}
-                            alt={`${slipway?.name} - View ${selectedImageIndex + 1}`}
+                            alt={`${slipway?.name} - Photo ${selectedImageIndex + 1}`}
                             style={{
                                 maxWidth: '100%',
                                 maxHeight: '100%',
