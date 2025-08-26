@@ -62,7 +62,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             // Reset form
             setNewComment('');
             setNewRating(0);
-            
+
         } catch (error) {
             console.error('Error submitting comment:', error);
             alert('Failed to submit comment. Please try again.');
@@ -297,11 +297,11 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                     ...slipway,
                     imgs: updatedImgs
                 };
-                
+
                 // Update both slipway states
                 setSlipway(updatedSlipway);
                 setEditedSlipway(updatedSlipway);
-                
+
                 // Update image URLs immediately
                 const newImages = fetchImgsService(updatedImgs);
                 setImageUrls(newImages);
@@ -309,9 +309,9 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                 // Save updated slipway to Firebase
                 const slipwayRef = ref(database, `slipwayDetails/${slipwayId}`);
                 await set(slipwayRef, updatedSlipway);
-                
+
                 console.log('Image uploaded and Firebase updated:', newImageId);
-                
+
                 // Small delay to ensure Firebase data propagates
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
@@ -370,29 +370,24 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             <div style={{ marginBottom: '30px', borderBottom: '2px solid #eee', paddingBottom: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                     {isEditing ? (
-                        <input
-                            type="text"
-                            value={editedSlipway?.name || ''}
-                            onChange={(e) => handleFieldChange('name', e.target.value)}
-                            style={{
-                                fontSize: '32px',
-                                fontWeight: 'bold',
-                                color: '#2c3e50',
-                                border: '2px solid #3498db',
-                                borderRadius: '4px',
-                                padding: '8px 12px',
-                                background: 'white',
-                                flex: 1,
-                                marginRight: '20px'
-                            }}
-                        />
-                    ) : (
-                        <h1 style={{ margin: 0, color: '#2c3e50' }}>{slipway.name}</h1>
-                    )}
-
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                        {isEditing ? (
-                            <>
+                        <>
+                            <input
+                                type="text"
+                                value={editedSlipway?.name || ''}
+                                onChange={(e) => handleFieldChange('name', e.target.value)}
+                                style={{
+                                    fontSize: '32px',
+                                    fontWeight: 'bold',
+                                    color: '#2c3e50',
+                                    border: '2px solid #3498db',
+                                    borderRadius: '4px',
+                                    padding: '8px 12px',
+                                    background: 'white',
+                                    flex: 1,
+                                    marginRight: '20px'
+                                }}
+                            />
+                            <div style={{ display: 'flex', gap: '10px' }}>
                                 <button
                                     onClick={handleSave}
                                     disabled={saving}
@@ -423,8 +418,29 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                 >
                                     ✕ Cancel
                                 </button>
-                            </>
-                        ) : (
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <h1 style={{ margin: 0, color: '#2c3e50' }}>{slipway.name}</h1>
+                            <div style={{
+                                fontSize: '8px',
+                                color: '#666',
+                                marginTop: '5px',
+                                fontFamily: 'monospace',
+                                backgroundColor: '#f8f9fa',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                display: 'inline-block',
+                                border: '1px solid #e9ecef'
+                            }}>
+                                ID: {slipwayId}
+                            </div>
+                        </>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        {!isEditing && (
                             <button
                                 onClick={handleEdit}
                                 style={{
@@ -434,8 +450,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                     padding: '8px 16px',
                                     borderRadius: '4px',
                                     cursor: 'pointer',
-                                    fontSize: '14px',
-                                    marginRight: '10px'
+                                    fontSize: '14px'
                                 }}
                             >
                                 ✏️ Edit
@@ -486,7 +501,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                     <h2 style={{ color: '#2c3e50', margin: 0 }}>
                         📸 Photos ({imageUrls.length})
                     </h2>
-                    
+
                     {!isEditing && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             {isUploading && (
@@ -982,7 +997,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                             </h3>
 
                             {/* Add Comment Form - Only for authenticated users */}
-                            {/*
+                        {/*
                             {user && (
                                 <div style={{
                                     backgroundColor: '#f8f9fa',
@@ -996,7 +1011,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                     </h4>
                                     
                                     {/* Rating Stars */}
-                                    {/*
+                        {/*
                                     <div style={{ marginBottom: '15px' }}>
                                         <label style={{ display: 'block', fontSize: '14px', color: '#666', marginBottom: '8px' }}>
                                             Rating (optional):
@@ -1040,7 +1055,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                     </div>
 
                                     {/* Comment Text */}
-                                    {/*
+                        {/*
                                     <textarea
                                         value={newComment}
                                         onChange={(e) => setNewComment(e.target.value)}
@@ -1059,7 +1074,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                     />
 
                                     {/* Submit Button */}
-                                    {/*
+                        {/*
                                     <button
                                         onClick={handleSubmitComment}
                                         disabled={!newComment.trim() || isSubmittingComment}
@@ -1080,7 +1095,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                             )}
 
                             {/* Comments List */}
-                            {/*
+                        {/*
                             <div>
                                 {slipway.comments && slipway.comments.length > 0 ? (
                                     slipway.comments
@@ -1097,7 +1112,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                                 }}
                                             >
                                                 {/* Comment Header */}
-                                                {/*
+                        {/*
                                                 <div style={{
                                                     display: 'flex',
                                                     justifyContent: 'space-between',
@@ -1130,7 +1145,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                                 </div>
 
                                                 {/* Comment Text */}
-                                                {/*
+                        {/*
                                                 <p style={{
                                                     margin: '0',
                                                     fontSize: '14px',
@@ -1159,112 +1174,114 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             </div>
 
             {/* Image Modal */}
-            {selectedImageIndex !== null && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 3000
-                }}>
-                    <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
-                        <img
-                            src={imageUrls[selectedImageIndex]?.src}
-                            alt={`${slipway?.name} - Photo ${selectedImageIndex + 1}`}
-                            style={{
-                                maxWidth: '100%',
-                                maxHeight: '100%',
-                                objectFit: 'contain'
-                            }}
-                        />
+            {
+                selectedImageIndex !== null && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 3000
+                    }}>
+                        <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+                            <img
+                                src={imageUrls[selectedImageIndex]?.src}
+                                alt={`${slipway?.name} - Photo ${selectedImageIndex + 1}`}
+                                style={{
+                                    maxWidth: '100%',
+                                    maxHeight: '100%',
+                                    objectFit: 'contain'
+                                }}
+                            />
 
-                        {/* Close button */}
-                        <button
-                            onClick={closeImageModal}
-                            style={{
+                            {/* Close button */}
+                            <button
+                                onClick={closeImageModal}
+                                style={{
+                                    position: 'absolute',
+                                    top: '10px',
+                                    right: '10px',
+                                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '40px',
+                                    height: '40px',
+                                    fontSize: '20px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                ×
+                            </button>
+
+                            {/* Navigation buttons */}
+                            {imageUrls.length > 1 && (
+                                <>
+                                    <button
+                                        onClick={() => navigateImage('prev')}
+                                        style={{
+                                            position: 'absolute',
+                                            left: '10px',
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '50%',
+                                            width: '40px',
+                                            height: '40px',
+                                            fontSize: '20px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        ‹
+                                    </button>
+                                    <button
+                                        onClick={() => navigateImage('next')}
+                                        style={{
+                                            position: 'absolute',
+                                            right: '10px',
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '50%',
+                                            width: '40px',
+                                            height: '40px',
+                                            fontSize: '20px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        ›
+                                    </button>
+                                </>
+                            )}
+
+                            {/* Image counter */}
+                            <div style={{
                                 position: 'absolute',
-                                top: '10px',
-                                right: '10px',
+                                bottom: '10px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
                                 backgroundColor: 'rgba(0, 0, 0, 0.7)',
                                 color: 'white',
-                                border: 'none',
-                                borderRadius: '50%',
-                                width: '40px',
-                                height: '40px',
-                                fontSize: '20px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            ×
-                        </button>
-
-                        {/* Navigation buttons */}
-                        {imageUrls.length > 1 && (
-                            <>
-                                <button
-                                    onClick={() => navigateImage('prev')}
-                                    style={{
-                                        position: 'absolute',
-                                        left: '10px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: '50%',
-                                        width: '40px',
-                                        height: '40px',
-                                        fontSize: '20px',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    ‹
-                                </button>
-                                <button
-                                    onClick={() => navigateImage('next')}
-                                    style={{
-                                        position: 'absolute',
-                                        right: '10px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: '50%',
-                                        width: '40px',
-                                        height: '40px',
-                                        fontSize: '20px',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    ›
-                                </button>
-                            </>
-                        )}
-
-                        {/* Image counter */}
-                        <div style={{
-                            position: 'absolute',
-                            bottom: '10px',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                            color: 'white',
-                            padding: '5px 10px',
-                            borderRadius: '15px',
-                            fontSize: '14px'
-                        }}>
-                            {selectedImageIndex + 1} of {imageUrls.length}
+                                padding: '5px 10px',
+                                borderRadius: '15px',
+                                fontSize: '14px'
+                            }}>
+                                {selectedImageIndex + 1} of {imageUrls.length}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 
