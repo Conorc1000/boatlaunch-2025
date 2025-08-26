@@ -18,7 +18,7 @@ app.use(cors({
 // Configure AWS
 aws.config.update({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY_1,
   region: process.env.AWS_REGION || 'us-east-1'
 });
 
@@ -42,17 +42,17 @@ app.get('/sign_s3', (req, res) => {
 
   if (!bucketName) {
     console.error('S3_BUCKET_NAME environment variable not configured');
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'S3_BUCKET_NAME not configured',
       details: 'Please add S3_BUCKET_NAME to your .env file'
     });
   }
 
-  if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+  if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY_1) {
     console.error('AWS credentials not configured');
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'AWS credentials not configured',
-      details: 'Please add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to your .env file'
+      details: 'Please add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY_1 to your .env file'
     });
   }
 
@@ -97,16 +97,16 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     if (!bucketName) {
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'S3_BUCKET_NAME not configured',
         details: 'Please add S3_BUCKET_NAME to your .env file'
       });
     }
 
-    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-      return res.status(500).json({ 
+    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY_1) {
+      return res.status(500).json({
         error: 'AWS credentials not configured',
-        details: 'Please add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to your .env file'
+        details: 'Please add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY_1 to your .env file'
       });
     }
 
@@ -121,19 +121,19 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
     const result = await s3.upload(uploadParams).promise();
     const publicUrl = `https://${bucketName}.s3.amazonaws.com/${fileName}`;
-    
+
     console.log('Upload successful:', publicUrl);
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       url: publicUrl,
-      location: result.Location 
+      location: result.Location
     });
 
   } catch (error) {
     console.error('Upload error:', error);
-    res.status(500).json({ 
-      error: 'Upload failed', 
-      details: error.message 
+    res.status(500).json({
+      error: 'Upload failed',
+      details: error.message
     });
   }
 });

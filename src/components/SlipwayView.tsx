@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ref, get, set } from 'firebase/database';
+import { ref, get, set, update } from 'firebase/database';
 import { database } from '../firebase';
 import { Slipway, Comment } from '../types/Slipway';
 import { useAuth } from '../hooks/useAuth';
@@ -306,9 +306,9 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                 const newImages = fetchImgsService(updatedImgs);
                 setImageUrls(newImages);
 
-                // Save updated slipway to Firebase
+                // Update only the imgs field in Firebase to preserve other data
                 const slipwayRef = ref(database, `slipwayDetails/${slipwayId}`);
-                await set(slipwayRef, updatedSlipway);
+                await update(slipwayRef, { imgs: updatedImgs });
 
                 console.log('Image uploaded and Firebase updated:', newImageId);
 
