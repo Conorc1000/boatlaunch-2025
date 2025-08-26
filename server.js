@@ -9,7 +9,7 @@ const port = process.env.PORT || 3001;
 
 // Enable CORS for React app
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: ['http://localhost:3000', 'http://localhost:3001', 'https://boatlaunch.co.uk'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-amz-acl'],
   credentials: true

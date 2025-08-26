@@ -502,45 +502,6 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                         📸 Photos ({imageUrls.length})
                     </h2>
 
-                    {!isEditing && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            {isUploading && (
-                                <span style={{ fontSize: '14px', color: '#007bff' }}>
-                                    {uploadProgress}%
-                                </span>
-                            )}
-                            <button
-                                onClick={() => {
-                                    if (!user) {
-                                        onNavigate && onNavigate('signin');
-                                        return;
-                                    }
-                                    document.getElementById('photo-upload-input')?.click();
-                                }}
-                                disabled={isUploading}
-                                style={{
-                                    backgroundColor: isUploading ? '#6c757d' : '#007bff',
-                                    color: 'white',
-                                    padding: '8px 16px',
-                                    borderRadius: '4px',
-                                    cursor: isUploading ? 'not-allowed' : 'pointer',
-                                    fontSize: '14px',
-                                    border: 'none',
-                                    display: 'inline-block'
-                                }}
-                            >
-                                {isUploading ? '⏳ Uploading...' : '📤 Upload Photo'}
-                            </button>
-                            <input
-                                id="photo-upload-input"
-                                type="file"
-                                accept="image/*"
-                                onChange={handlePhotoUpload}
-                                disabled={isUploading}
-                                style={{ display: 'none' }}
-                            />
-                        </div>
-                    )}
                 </div>
 
                 {imageUrls.length === 0 ? (
