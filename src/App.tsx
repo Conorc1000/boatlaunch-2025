@@ -24,9 +24,9 @@ function App() {
 
     const handleMenuClick = (view: string, data?: any) => {
         console.log('handleMenuClick called with:', { view, data });
-        
+
         setActiveView(view);
-        
+
         if (data) {
             if (typeof data === 'string') {
                 // Legacy support for slipwayId
@@ -59,7 +59,7 @@ function App() {
             // No data provided - clear centering state
             setCenterOnSlipway(null);
         }
-        
+
         setDropdownOpen(false);
         setFormError(''); // Clear any form errors when switching views
         setFormSuccess(''); // Clear success messages
@@ -403,16 +403,16 @@ function App() {
             case 'addSlipway':
                 console.log('Rendering AddSlipway with addSlipwayLocation:', addSlipwayLocation);
                 return (
-                    <AddSlipway 
-                        initialLocation={addSlipwayLocation} 
-                        onNavigate={handleMenuClick} 
+                    <AddSlipway
+                        initialLocation={addSlipwayLocation}
+                        onNavigate={handleMenuClick}
                     />
                 );
             case 'add-slipway':
                 return (
-                    <AddSlipway 
-                        initialLocation={addSlipwayLocation} 
-                        onNavigate={handleMenuClick} 
+                    <AddSlipway
+                        initialLocation={addSlipwayLocation}
+                        onNavigate={handleMenuClick}
                     />
                 );
             case 'about':
@@ -428,7 +428,7 @@ function App() {
                         <ul>
                             <li>Interactive map with detailed slipway information</li>
                             <li>Comprehensive database of UK boat launches</li>
-                            <li>User-contributed content and reviews</li>
+                            <li>User-contributed content</li>
                             <li>Detailed facility and access information</li>
                             <li>Mobile-friendly design for on-the-go use</li>
                         </ul>
@@ -439,17 +439,8 @@ function App() {
                     <div className="content-section">
                         <h2>Contact Developer</h2>
                         <p>Have questions, suggestions, or found an issue? Get in touch!</p>
-                        <form className="contact-form">
-                            <input type="text" placeholder="Your Name" required />
-                            <input type="email" placeholder="Your Email" required />
-                            <input type="text" placeholder="Subject" required />
-                            <textarea placeholder="Your Message" rows={6} required></textarea>
-                            <button type="submit">Send Message</button>
-                        </form>
                         <div className="contact-info">
-                            <h3>Other Ways to Reach Us</h3>
-                            <p>Email: developer@boatlaunch.com</p>
-                            <p>GitHub: github.com/boatlaunch</p>
+                            <p>Email: conorc1000@gmail.com</p>
                         </div>
                     </div>
                 );
@@ -521,18 +512,6 @@ function App() {
                                     onClick={() => handleMenuClick('map')}
                                 >
                                     Map
-                                </button>
-                                <button
-                                    className={activeView === 'add-slipway' ? 'dropdown-item active' : 'dropdown-item'}
-                                    onClick={() => {
-                                        if (!user) {
-                                            handleMenuClick('signin');
-                                            return;
-                                        }
-                                        handleMenuClick('add-slipway');
-                                    }}
-                                >
-                                    Add Slipway
                                 </button>
                                 <button
                                     className={activeView === 'about' ? 'dropdown-item active' : 'dropdown-item'}
