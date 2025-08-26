@@ -774,9 +774,12 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                             <SlipwayView
                                 slipwayId={selectedSlipway.id}
                                 slipwayData={selectedSlipway}
-                                onNavigate={(view: string) => {
+                                onNavigate={(view: string, data?: any) => {
                                     if (view === 'map') {
                                         setSelectedSlipway(null);
+                                    } else {
+                                        // Pass through other navigation requests to parent
+                                        onNavigate && onNavigate(view, data);
                                     }
                                 }}
                             />

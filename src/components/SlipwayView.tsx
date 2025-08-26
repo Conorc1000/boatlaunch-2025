@@ -180,6 +180,11 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
     };
 
     const handleEdit = () => {
+        // Check if user is authenticated before allowing edit
+        if (!user) {
+            onNavigate && onNavigate('signin');
+            return;
+        }
         setIsEditing(true);
         setEditedSlipway(slipway ? { ...slipway } : null);
     };
@@ -489,7 +494,15 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                     {uploadProgress}%
                                 </span>
                             )}
-                            <label
+                            <button
+                                onClick={() => {
+                                    if (!user) {
+                                        onNavigate && onNavigate('signin');
+                                        return;
+                                    }
+                                    document.getElementById('photo-upload-input')?.click();
+                                }}
+                                disabled={isUploading}
                                 style={{
                                     backgroundColor: isUploading ? '#6c757d' : '#007bff',
                                     color: 'white',
@@ -502,14 +515,15 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                                 }}
                             >
                                 {isUploading ? '⏳ Uploading...' : '📤 Upload Photo'}
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={handlePhotoUpload}
-                                    disabled={isUploading}
-                                    style={{ display: 'none' }}
-                                />
-                            </label>
+                            </button>
+                            <input
+                                id="photo-upload-input"
+                                type="file"
+                                accept="image/*"
+                                onChange={handlePhotoUpload}
+                                disabled={isUploading}
+                                style={{ display: 'none' }}
+                            />
                         </div>
                     )}
                 </div>
