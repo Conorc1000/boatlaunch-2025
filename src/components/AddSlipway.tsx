@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import { LatLngExpression } from 'leaflet';
-import L from 'leaflet';
+import L, { LatLngExpression } from 'leaflet';
 import { ref, set, push } from 'firebase/database';
 import { database } from '../firebase';
 import { useAuth } from '../hooks/useAuth';

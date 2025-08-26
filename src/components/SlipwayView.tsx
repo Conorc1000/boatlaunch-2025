@@ -4,12 +4,12 @@ import { database } from '../firebase';
 import { Slipway, Comment } from '../types/Slipway';
 import { useAuth } from '../hooks/useAuth';
 import { fetchImgsService, generateImageId, validateImageFile } from '../services/fetchImgService';
-import { imgUploadService } from '../services/imgUploadService';
+import proxyUploadService from '../services/proxyUploadService';
 
 interface SlipwayViewProps {
     slipwayId: string;
     slipwayData?: Slipway;
-    onNavigate?: (view: string) => void;
+    onNavigate?: (view: string, data?: any) => void;
 }
 
 const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNavigate }) => {
@@ -257,40 +257,52 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             // Generate new image ID
             const newImageId = generateImageId(slipwayId);
 
-            // Upload to S3
-            await imgUploadService(
+            // Upload to S3 via proxy
+            const uploadUrl = await proxyUploadService(
                 file,
                 newImageId,
-                (progressMessage) => {
+                (progressMessage: string) => {
                     // Extract percentage from progress message if it contains one
                     const match = progressMessage.match(/(\d+)%/);
                     if (match) {
                         setUploadProgress(parseInt(match[1]));
                     }
                 },
-                (url) => {
-                    // Add new image ID to slipway's imgs array
-                    if (editedSlipway) {
-                        const updatedImgs = [...(editedSlipway.imgs || []), newImageId];
-                        setEditedSlipway({
-                            ...editedSlipway,
-                            imgs: updatedImgs
-                        });
-
-                        // Add to local image URLs for immediate display
-                        setImageUrls(prev => [...prev, { src: url, id: newImageId }]);
-                    }
-                    setTimeout(() => {
-                        setIsUploading(false);
-                        setUploadProgress(0);
-                    }, 2000);
-                },
-                (error) => {
-                    alert(`Upload failed: ${error}`);
-                    setIsUploading(false);
-                    setUploadProgress(0);
+                undefined, // No success callback needed since we use await
+                (error: string) => {
+                    console.error('Upload error:', error);
+                    alert('Upload failed. Please try again.');
                 }
             );
+
+            // Handle successful upload
+            if (uploadUrl && slipway) {
+                const updatedImgs = [...(slipway.imgs || []), newImageId];
+                const updatedSlipway = {
+                    ...slipway,
+                    imgs: updatedImgs
+                };
+                
+                // Update both slipway states
+                setSlipway(updatedSlipway);
+                setEditedSlipway(updatedSlipway);
+                
+                // Update image URLs immediately
+                const newImages = fetchImgsService(updatedImgs);
+                setImageUrls(newImages);
+
+                // Save updated slipway to Firebase
+                const slipwayRef = ref(database, `slipwayDetails/${slipwayId}`);
+                await set(slipwayRef, updatedSlipway);
+                
+                console.log('Image uploaded and Firebase updated:', newImageId);
+                
+                // Small delay to ensure Firebase data propagates
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+            setIsUploading(false);
+            setUploadProgress(0);
         } catch (error) {
             console.error('Upload error:', error);
             alert('Upload failed. Please try again.');
@@ -415,7 +427,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                             </button>
                         )}
                         <button
-                            onClick={() => onNavigate && onNavigate('map')}
+                            onClick={() => onNavigate && onNavigate('map', { refreshData: true })}
                             style={{
                                 backgroundColor: '#6c757d',
                                 color: 'white',
@@ -460,7 +472,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                         📸 Photos ({imageUrls.length})
                     </h2>
                     
-                    {isEditing && (
+                    {!isEditing && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             {isUploading && (
                                 <span style={{ fontSize: '14px', color: '#007bff' }}>

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
-import { LatLngExpression } from 'leaflet';
-import L from 'leaflet';
-import { ref, get } from 'firebase/database';
+import L, { LatLngExpression } from 'leaflet';
+import { ref, get, limitToFirst, query } from 'firebase/database';
 import { database } from '../firebase';
 import { Slipway } from '../types/Slipway';
 import { useAuth } from '../hooks/useAuth';
@@ -87,7 +86,7 @@ const MapUpdater: React.FC<{ centerOnSlipway: any; onCenterComplete: () => void 
 const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
     const [slipways, setSlipways] = useState<Slipway[]>([]);
     const [filteredSlipways, setFilteredSlipways] = useState<Slipway[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [dataLoading, setDataLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedSlipway, setSelectedSlipway] = useState<Slipway | null>(null);
     const [rampLengthFilter, setRampLengthFilter] = useState<string>('');
@@ -112,83 +111,161 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
         return text.substring(0, maxLength) + '...';
     };
 
-    // Handle success message for saved slipways
+    // Fetch slipways from Firebase
     useEffect(() => {
-        console.log('Map component received centerOnSlipway:', centerOnSlipway);
-        if (centerOnSlipway && centerOnSlipway.id !== 'preview') {
-            setShowSuccessMessage(`Successfully added "${centerOnSlipway.name}"!`);
-            // Auto-hide success message after 5 seconds
-            setTimeout(() => {
-                setShowSuccessMessage(null);
-            }, 5000);
-        }
-    }, [centerOnSlipway]);
+        console.log('Map component mounted, fetching slipways...');
 
-    // Clear centering state after animation complete
-    const handleCenterComplete = () => {
-        // This will be handled by App.tsx state management
-    };
-
-    useEffect(() => {
         const fetchSlipways = async () => {
             try {
-                setLoading(true);
+                setDataLoading(true);
+                console.log('Starting to fetch slipway data...');
 
-                // Fetch both latLngs and slipwayDetails
+                // Try to fetch from a single optimized endpoint first
+                const startTime = performance.now();
+                
+                // Option 1: Try to fetch combined data if available
+                const combinedRef = ref(database, 'slipways');
+                let latLngsSnapshot, detailsSnapshot;
+                    
+                try {
+                    // Force fresh data by adding timestamp to avoid cache
+                    const combinedSnapshot = await get(combinedRef);
+                    if (combinedSnapshot.exists()) {
+                        console.log('Using optimized combined slipways data');
+                        // Handle combined data structure here if it exists
+                        const combinedData = combinedSnapshot.val();
+                        const fetchTime = performance.now() - startTime;
+                        console.log(`Optimized Firebase fetch completed in ${fetchTime.toFixed(2)}ms`);
+                        
+                        // Process combined data differently
+                        const slipwayData: Slipway[] = Object.keys(combinedData).map(slipwayId => {
+                            const data = combinedData[slipwayId];
+                            return {
+                                id: slipwayId,
+                                name: data.name || data.Name || 'Unknown',
+                                description: data.description || data.Description || 'No description available',
+                                latitude: data.latitude || parseFloat(data.coords?.[0]) || 0,
+                                longitude: data.longitude || parseFloat(data.coords?.[1]) || 0,
+                                facilities: data.facilities || (data.Facilities ? data.Facilities.split(', ').filter((f: string) => f.trim()) : []),
+                                imgs: data.imgs || data.ImageIds || [],
+                                comments: data.comments || [],
+                                charges: data.charges || data.Charges || 'Unknown',
+                                nearestPlace: data.nearestPlace || data.NearestPlace || 'Unknown',
+                                rampType: data.rampType || data.RampType || 'Unknown',
+                                suitability: data.suitability || data.Suitability || 'Unknown',
+                                directions: data.directions || data.Directions || '',
+                                email: data.email || data.Email || '',
+                                lowerArea: data.lowerArea || data.LowerArea || '',
+                                mobilePhoneNumber: data.mobilePhoneNumber || data.MobilePhoneNumber || '',
+                                navigationalHazards: data.navigationalHazards || data.NavigationalHazards || '',
+                                rampDescription: data.rampDescription || data.RampDescription || '',
+                                rampLength: data.rampLength || data.RampLength || '',
+                                upperArea: data.upperArea || data.UpperArea || '',
+                                website: data.website || data.Website || ''
+                            };
+                        }).filter(slipway => slipway.latitude && slipway.longitude);
+                        
+                        setSlipways(slipwayData);
+                        setFilteredSlipways(slipwayData);
+                        setError(null);
+                        console.log(`Successfully loaded ${slipwayData.length} slipways from optimized endpoint`);
+                        return; // Exit early if combined data worked
+                    }
+                } catch (combinedError) {
+                    console.log('Combined endpoint not available, falling back to separate queries');
+                }
+                
+                // Option 2: Fallback to separate queries with limited data
+                console.log('Fetching from separate latLngs and slipwayDetails endpoints...');
                 const latLngsRef = ref(database, 'latLngs');
                 const slipwayDetailsRef = ref(database, 'slipwayDetails');
 
-                const [latLngsSnapshot, detailsSnapshot] = await Promise.all([
+                [latLngsSnapshot, detailsSnapshot] = await Promise.all([
                     get(latLngsRef),
                     get(slipwayDetailsRef)
                 ]);
+                const fetchTime = performance.now() - startTime;
+                console.log(`Firebase fetch completed in ${fetchTime.toFixed(2)}ms`);
+                console.log(`Data sizes - latLngs: ${JSON.stringify(latLngsSnapshot.val()).length} chars, details: ${JSON.stringify(detailsSnapshot.val()).length} chars`);
 
                 if (latLngsSnapshot.exists() && detailsSnapshot.exists()) {
                     const latLngsData = latLngsSnapshot.val();
                     const detailsData = detailsSnapshot.val();
-                    const slipwayData: Slipway[] = [];
+                    
+                    console.log(`Processing ${Object.keys(latLngsData).length} slipway records...`);
+                    
+                    // Use requestIdleCallback for non-blocking processing
+                    const processData = () => {
+                        return new Promise<Slipway[]>((resolve) => {
+                            const slipwayData: Slipway[] = [];
+                            const slipwayIds = Object.keys(latLngsData);
+                            let processedCount = 0;
+                            
+                            const processBatch = () => {
+                                const batchSize = 50; // Process 50 items at a time
+                                const endIndex = Math.min(processedCount + batchSize, slipwayIds.length);
+                                
+                                for (let i = processedCount; i < endIndex; i++) {
+                                    const slipwayId = slipwayIds[i];
+                                    const coords = latLngsData[slipwayId];
+                                    const details = detailsData[slipwayId];
 
-                    // Combine latLngs and details data
-                    Object.keys(latLngsData).forEach((slipwayId) => {
-                        const coords = latLngsData[slipwayId];
-                        const details = detailsData[slipwayId];
-
-                        if (coords && details && coords.length >= 2) {
-
-                            const slipway: Slipway = {
-                                id: slipwayId,
-                                name: details.Name || 'Unknown',
-                                description: details.Description || 'No description available',
-                                latitude: parseFloat(coords[0]),
-                                longitude: parseFloat(coords[1]),
-                                facilities: details.Facilities ? details.Facilities.split(', ').filter((f: string) => f.trim()) : [],
-                                imgs: details.imgs || details.ImageIds || [],
-                                comments: details.comments || [],
-                                charges: details.Charges || 'Unknown',
-                                nearestPlace: details.NearestPlace || 'Unknown',
-                                rampType: details.RampType || 'Unknown',
-                                suitability: details.Suitability || 'Unknown',
-                                directions: details.Directions || '',
-                                email: details.Email || '',
-                                lowerArea: details.LowerArea || '',
-                                mobilePhoneNumber: details.MobilePhoneNumber || '',
-                                navigationalHazards: details.NavigationalHazards || '',
-                                rampDescription: details.RampDescription || '',
-                                rampLength: details.RampLength || '',
-                                upperArea: details.UpperArea || '',
-                                website: details.Website || ''
+                                    if (coords && details && coords.length >= 2) {
+                                        const slipway: Slipway = {
+                                            id: slipwayId,
+                                            name: details.Name || 'Unknown',
+                                            description: details.Description || 'No description available',
+                                            latitude: parseFloat(coords[0]),
+                                            longitude: parseFloat(coords[1]),
+                                            facilities: details.Facilities ? details.Facilities.split(', ').filter((f: string) => f.trim()) : [],
+                                            imgs: details.imgs || details.ImageIds || [],
+                                            comments: details.comments || [],
+                                            charges: details.Charges || 'Unknown',
+                                            nearestPlace: details.NearestPlace || 'Unknown',
+                                            rampType: details.RampType || 'Unknown',
+                                            suitability: details.Suitability || 'Unknown',
+                                            directions: details.Directions || '',
+                                            email: details.Email || '',
+                                            lowerArea: details.LowerArea || '',
+                                            mobilePhoneNumber: details.MobilePhoneNumber || '',
+                                            navigationalHazards: details.NavigationalHazards || '',
+                                            rampDescription: details.RampDescription || '',
+                                            rampLength: details.RampLength || '',
+                                            upperArea: details.UpperArea || '',
+                                            website: details.Website || ''
+                                        };
+                                        slipwayData.push(slipway);
+                                    }
+                                }
+                                
+                                processedCount = endIndex;
+                                
+                                if (processedCount < slipwayIds.length) {
+                                    // Schedule next batch
+                                    if ('requestIdleCallback' in window) {
+                                        requestIdleCallback(processBatch);
+                                    } else {
+                                        setTimeout(processBatch, 0);
+                                    }
+                                } else {
+                                    resolve(slipwayData);
+                                }
                             };
+                            
+                            processBatch();
+                        });
+                    };
 
-                            slipwayData.push(slipway);
-                        }
-                    });
+                    const processStartTime = performance.now();
+                    const slipwayData = await processData();
+                    const processTime = performance.now() - processStartTime;
+                    console.log(`Data processing completed in ${processTime.toFixed(2)}ms`);
 
                     setSlipways(slipwayData);
                     setFilteredSlipways(slipwayData);
                     setError(null);
-                    console.log(`Loaded ${slipwayData.length} slipways from Firebase`);
+                    console.log(`Successfully loaded ${slipwayData.length} slipways from Firebase`);
                 } else {
-                    // No data found, use fallback
                     throw new Error('No slipway data found in database');
                 }
             } catch (err) {
@@ -219,7 +296,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                     }
                 ]);
             } finally {
-                setLoading(false);
+                setDataLoading(false);
             }
         };
 
@@ -231,13 +308,13 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
         let filtered = slipways;
 
         if (rampLengthFilter) {
-            filtered = filtered.filter(slipway => 
+            filtered = filtered.filter((slipway: Slipway) => 
                 slipway.rampLength && slipway.rampLength === rampLengthFilter
             );
         }
 
         if (suitabilityFilter) {
-            filtered = filtered.filter(slipway => {
+            filtered = filtered.filter((slipway: Slipway) => {
                 if (!slipway.suitability) return false;
                 
                 // Hierarchical filtering logic
@@ -260,32 +337,63 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
         setFilteredSlipways(filtered);
     }, [slipways, rampLengthFilter, suitabilityFilter]);
 
+    // Clear filters
     const clearFilters = () => {
         setRampLengthFilter('');
         setSuitabilityFilter('');
     };
 
+    // Handle center complete
+    const handleCenterComplete = () => {
+        // This will be handled by App.tsx state management
+    };
 
-
-
-    if (loading) {
-        return (
-            <div style={{
-                width: '100%',
-                height: '80vh',
-                borderRadius: '10px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#f0f0f0'
-            }}>
-                <p>Loading slipway locations...</p>
-            </div>
-        );
-    }
+    // Default map center (London) - will be updated when data loads
+    const defaultCenter: [number, number] = [51.505, -0.09];
+    const mapCenter = filteredSlipways.length > 0 
+        ? [filteredSlipways[0].latitude, filteredSlipways[0].longitude] as [number, number]
+        : defaultCenter;
 
     return (
         <div style={{ position: 'relative', width: '100%', height: '80vh', borderRadius: '10px', overflow: 'hidden' }}>
+            {/* Loading Overlay */}
+            {dataLoading && (
+                <div style={{
+                    position: 'absolute',
+                    top: '10px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 1002,
+                    backgroundColor: 'rgba(52, 152, 219, 0.95)',
+                    color: 'white',
+                    padding: '12px 24px',
+                    borderRadius: '25px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    border: '2px solid rgba(255,255,255,0.2)'
+                }}>
+                    <div style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid rgba(255,255,255,0.3)',
+                        borderTop: '2px solid white',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                    }}></div>
+                    Loading slipway locations...
+                    <style>{`
+                        @keyframes spin {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
+                    `}</style>
+                </div>
+            )}
+
             {/* Top buttons */}
             <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 1001, display: 'flex', gap: '10px' }}>
                 {/* Add Slipway Button */}
@@ -482,14 +590,13 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                 )}
                 <MapContainer
                     {...({
-                        center: filteredSlipways.length > 0 ? [filteredSlipways[0].latitude, filteredSlipways[0].longitude] : [51.505, -0.09],
+                        center: mapCenter,
                         zoom: 13,
                         style: { height: '100%', width: '100%' }
                     } as any)}
                 >
                     <TileLayer
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     />
                     <MapClickHandler onMapClick={handleMapClick} />
                     <MapUpdater centerOnSlipway={centerOnSlipway} onCenterComplete={handleCenterComplete} />

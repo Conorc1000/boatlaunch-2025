@@ -18,13 +18,10 @@ export const imgUploadService = (
     onError?: (error: string) => void
 ): Promise<string> => {
     return new Promise((resolve, reject) => {
-        // Note: AWS configuration would be done here when AWS SDK is available
-        // For now, we'll proceed with the upload logic
-
         const xhr = new XMLHttpRequest();
-        const fileName = `${newImgId}___Source.jpg`;
+        const fileName = `WebSitePhotos/${newImgId}___Source.jpg`;
 
-        xhr.open("GET", `/sign_s3?file_name=${fileName}&file_type=${file.type}`);
+        xhr.open("GET", `http://localhost:3001/sign_s3?file_name=${fileName}&file_type=${file.type}`);
 
         xhr.onreadystatechange = function() {
             if (xhr.readyState === 4) {
@@ -59,7 +56,8 @@ export const imgUploadService = (
             const uploadXhr = new XMLHttpRequest();
             
             uploadXhr.open("PUT", signedRequest);
-            uploadXhr.setRequestHeader('x-amz-acl', 'public-read');
+            // Remove custom headers that trigger CORS preflight
+            // uploadXhr.setRequestHeader('x-amz-acl', 'public-read');
             
             uploadXhr.onload = function() {
                 if (uploadXhr.status === 200) {
@@ -69,6 +67,7 @@ export const imgUploadService = (
                     resolve(url);
                 } else {
                     const errorMsg = `Upload failed with status: ${uploadXhr.status}`;
+                    console.error('Upload failed:', uploadXhr.responseText);
                     onError?.(errorMsg);
                     reject(new Error(errorMsg));
                 }
@@ -76,6 +75,7 @@ export const imgUploadService = (
             
             uploadXhr.onerror = function() {
                 const errorMsg = "Could not upload file to S3";
+                console.error('Upload error:', uploadXhr.responseText);
                 onError?.(errorMsg);
                 reject(new Error(errorMsg));
             };

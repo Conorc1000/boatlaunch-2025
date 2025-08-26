@@ -10,6 +10,7 @@ function App() {
     const [selectedSlipwayId, setSelectedSlipwayId] = useState<string | null>(null);
     const [addSlipwayLocation, setAddSlipwayLocation] = useState<{ latitude: number; longitude: number } | null>(null);
     const [centerOnSlipway, setCenterOnSlipway] = useState<{ id: string; latitude: number; longitude: number; name: string } | null>(null);
+    const [mapRefreshKey, setMapRefreshKey] = useState<number>(0);
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const { user, loading, signIn, signInWithGoogle, signInWithFacebook, signUp, logout } = useAuth();
 
@@ -50,6 +51,9 @@ function App() {
             } else if (data.slipwayId) {
                 setSelectedSlipwayId(data.slipwayId);
                 setCenterOnSlipway(null); // Clear centering for non-centering navigation
+            } else if (data.refreshData) {
+                // Refresh map data when returning from SlipwayView
+                setMapRefreshKey(prev => prev + 1);
             }
         } else {
             // No data provided - clear centering state
@@ -166,7 +170,7 @@ function App() {
     const renderContent = () => {
         switch (activeView) {
             case 'map':
-                return <Map onNavigate={handleMenuClick} centerOnSlipway={centerOnSlipway} />;
+                return <Map key={mapRefreshKey} onNavigate={handleMenuClick} centerOnSlipway={centerOnSlipway} />;
             case 'slipway-view':
                 return selectedSlipwayId ? (
                     <SlipwayView slipwayId={selectedSlipwayId} onNavigate={handleMenuClick} />
