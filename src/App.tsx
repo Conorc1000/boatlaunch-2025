@@ -524,7 +524,13 @@ function App() {
                                 </button>
                                 <button
                                     className={activeView === 'add-slipway' ? 'dropdown-item active' : 'dropdown-item'}
-                                    onClick={() => handleMenuClick('add-slipway')}
+                                    onClick={() => {
+                                        if (!user) {
+                                            handleMenuClick('signin');
+                                            return;
+                                        }
+                                        handleMenuClick('add-slipway');
+                                    }}
                                 >
                                     Add Slipway
                                 </button>
