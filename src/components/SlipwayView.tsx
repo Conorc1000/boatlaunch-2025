@@ -192,6 +192,12 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
     const handleSave = async () => {
         if (!editedSlipway || !slipway) return;
 
+        // Check if user is authenticated
+        if (!user) {
+            setError('You must be signed in to save changes.');
+            return;
+        }
+
         try {
             setSaving(true);
             setError(null);
@@ -224,7 +230,11 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             setIsEditing(false);
         } catch (err) {
             console.error('Error saving slipway data:', err);
-            setError('Failed to save changes. Please try again.');
+            if (err instanceof Error && err.message.includes('PERMISSION_DENIED')) {
+                setError('Permission denied. Please sign in and try again.');
+            } else {
+                setError('Failed to save changes. Please try again.');
+            }
         } finally {
             setSaving(false);
         }

@@ -1,0 +1,14 @@
+{
+  "rules": {
+    ".read": true,
+    ".write": "auth != null",
+    "slipwayDetails": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "latLngs": {
+      ".read": true,
+      ".write": "auth != null"
+    }
+  }
+}
