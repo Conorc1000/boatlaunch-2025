@@ -19,7 +19,7 @@ export const proxyUploadService = (
 
         // Use environment-specific backend URL
         const backendUrl = process.env.NODE_ENV === 'production'
-            ? process.env.REACT_APP_BACKEND_URL || 'https://your-backend-domain.com'
+            ? '/.netlify/functions'
             : 'http://localhost:3001';
 
         xhr.open('POST', `${backendUrl}/upload`);
