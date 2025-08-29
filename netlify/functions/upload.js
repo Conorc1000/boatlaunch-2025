@@ -1,5 +1,4 @@
 const aws = require('aws-sdk');
-const multipart = require('lambda-multipart-parser');
 
 // Configure AWS
 aws.config.update({
@@ -38,10 +37,31 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // Parse multipart form data
-    const result = await multipart.parse(event);
-    const file = result.files && result.files[0];
-    const fileName = result.fileName;
+    // Parse form data from body
+    const body = event.isBase64Encoded ? Buffer.from(event.body, 'base64') : event.body;
+    
+    // Simple multipart parsing for Netlify Functions
+    const boundary = event.headers['content-type'].split('boundary=')[1];
+    const parts = body.split(`--${boundary}`);
+    
+    let file = null;
+    let fileName = null;
+    
+    for (const part of parts) {
+      if (part.includes('Content-Disposition: form-data; name="file"')) {
+        const fileStart = part.indexOf('\r\n\r\n') + 4;
+        const fileEnd = part.lastIndexOf('\r\n');
+        file = {
+          content: part.slice(fileStart, fileEnd),
+          contentType: 'image/jpeg'
+        };
+      } else if (part.includes('Content-Disposition: form-data; name="fileName"')) {
+        const valueStart = part.indexOf('\r\n\r\n') + 4;
+        const valueEnd = part.lastIndexOf('\r\n');
+        fileName = part.slice(valueStart, valueEnd);
+      }
+    }
+    
     const bucketName = process.env.S3_BUCKET_NAME;
 
     console.log('Proxy upload request:', { 
