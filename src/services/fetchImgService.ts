@@ -6,7 +6,9 @@ interface ImageUrl {
 }
 
 export const fetchImgsService = (imgIds: string[] | undefined): ImageUrl[] => {
-    const prefix = `https://s3-eu-west-1.amazonaws.com/${process.env.REACT_APP_S3_PHOTOS_BUCKET}/WebSitePhotos/`;
+    // Use the same bucket name format as the upload function
+    const bucketName = 'boatlaunchphotos'; // Match the actual S3 bucket name
+    const prefix = `https://${bucketName}.s3.amazonaws.com/WebSitePhotos/`;
     const suffix = "___Source.jpg";
 
     const getUrls = (imgIds: string[] | undefined): ImageUrl[] => {

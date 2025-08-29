@@ -2,7 +2,7 @@ const aws = require('aws-sdk');
 
 // Configure AWS
 aws.config.update({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID_1,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY_1,
   region: process.env.AWS_REGION || 'us-east-1'
 });
@@ -64,14 +64,14 @@ exports.handler = async (event, context) => {
       };
     }
 
-    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY_1) {
+    if (!process.env.AWS_ACCESS_KEY_ID_1 || !process.env.AWS_SECRET_ACCESS_KEY_1) {
       console.error('AWS credentials not configured');
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({
           error: 'AWS credentials not configured',
-          details: 'Please add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY_1 to your environment variables'
+          details: 'Please add AWS_ACCESS_KEY_ID_1 and AWS_SECRET_ACCESS_KEY_1 to your environment variables'
         })
       };
     }

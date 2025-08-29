@@ -1,9 +1,13 @@
 {
   "name": "netlify-functions",
   "version": "1.0.0",
-  "description": "Netlify Functions for S3 upload",
+  "description": "",
   "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
   "dependencies": {
-    "aws-sdk": "^2.1490.0"
+    "aws-sdk": "^2.1691.0",
+    "busboy": "^1.6.0"
   }
 }

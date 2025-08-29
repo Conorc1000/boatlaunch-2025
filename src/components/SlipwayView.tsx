@@ -501,7 +501,35 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                     <h2 style={{ color: '#2c3e50', margin: 0 }}>
                         📸 Photos ({imageUrls.length})
                     </h2>
-
+                    
+                    {user && (
+                        <div style={{ position: 'relative' }}>
+                            <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handlePhotoUpload}
+                                style={{ display: 'none' }}
+                                id="photo-upload"
+                                disabled={isUploading}
+                            />
+                            <label
+                                htmlFor="photo-upload"
+                                style={{
+                                    backgroundColor: isUploading ? '#95a5a6' : '#3498db',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '8px 16px',
+                                    borderRadius: '4px',
+                                    cursor: isUploading ? 'not-allowed' : 'pointer',
+                                    fontSize: '14px',
+                                    display: 'inline-block',
+                                    transition: 'background-color 0.3s'
+                                }}
+                            >
+                                {isUploading ? `📤 Uploading... ${uploadProgress}%` : '📷 Add Photo'}
+                            </label>
+                        </div>
+                    )}
                 </div>
 
                 {imageUrls.length === 0 ? (
