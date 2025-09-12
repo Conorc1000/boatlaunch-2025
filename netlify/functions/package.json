@@ -1,13 +1,15 @@
 {
   "name": "netlify-functions",
   "version": "1.0.0",
-  "description": "",
+  "description": "Netlify Functions for boat launch app",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "aws-sdk": "^2.1691.0",
-    "busboy": "^1.6.0"
+    "aws-sdk": "^2.1691.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
