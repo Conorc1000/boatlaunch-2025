@@ -62,24 +62,24 @@ const MapClickHandler: React.FC<{ onMapClick: (lat: number, lng: number) => void
 // Component to handle map updates and centering
 const MapUpdater: React.FC<{ centerOnSlipway: any; onCenterComplete: () => void }> = ({ centerOnSlipway, onCenterComplete }) => {
     const mapRef = useRef(null);
-    
+
     useEffect(() => {
         if (centerOnSlipway) {
             const map = mapRef.current;
             if (map) {
                 (map as any).setView([centerOnSlipway.latitude, centerOnSlipway.longitude], 15);
             }
-            
+
             // Clear after animation
             const timer = setTimeout(() => {
                 console.log('MapUpdater calling onCenterComplete');
                 onCenterComplete();
             }, 1500);
-            
+
             return () => clearTimeout(timer);
         }
     }, [centerOnSlipway, onCenterComplete]);
-    
+
     return null;
 };
 
@@ -122,11 +122,11 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
 
                 // Try to fetch from a single optimized endpoint first
                 const startTime = performance.now();
-                
+
                 // Option 1: Try to fetch combined data if available
                 const combinedRef = ref(database, 'slipways');
                 let latLngsSnapshot, detailsSnapshot;
-                    
+
                 try {
                     // Force fresh data by adding timestamp to avoid cache
                     const combinedSnapshot = await get(combinedRef);
@@ -136,7 +136,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                         const combinedData = combinedSnapshot.val();
                         const fetchTime = performance.now() - startTime;
                         console.log(`Optimized Firebase fetch completed in ${fetchTime.toFixed(2)}ms`);
-                        
+
                         // Process combined data differently
                         const slipwayData: Slipway[] = Object.keys(combinedData).map(slipwayId => {
                             const data = combinedData[slipwayId];
@@ -164,7 +164,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                                 website: data.website || data.Website || ''
                             };
                         }).filter(slipway => slipway.latitude && slipway.longitude);
-                        
+
                         setSlipways(slipwayData);
                         setFilteredSlipways(slipwayData);
                         setError(null);
@@ -174,7 +174,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                 } catch (combinedError) {
                     console.log('Combined endpoint not available, falling back to separate queries');
                 }
-                
+
                 // Option 2: Fallback to separate queries with limited data
                 console.log('Fetching from separate latLngs and slipwayDetails endpoints...');
                 const latLngsRef = ref(database, 'latLngs');
@@ -191,20 +191,20 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                 if (latLngsSnapshot.exists() && detailsSnapshot.exists()) {
                     const latLngsData = latLngsSnapshot.val();
                     const detailsData = detailsSnapshot.val();
-                    
+
                     console.log(`Processing ${Object.keys(latLngsData).length} slipway records...`);
-                    
+
                     // Use requestIdleCallback for non-blocking processing
                     const processData = () => {
                         return new Promise<Slipway[]>((resolve) => {
                             const slipwayData: Slipway[] = [];
                             const slipwayIds = Object.keys(latLngsData);
                             let processedCount = 0;
-                            
+
                             const processBatch = () => {
                                 const batchSize = 50; // Process 50 items at a time
                                 const endIndex = Math.min(processedCount + batchSize, slipwayIds.length);
-                                
+
                                 for (let i = processedCount; i < endIndex; i++) {
                                     const slipwayId = slipwayIds[i];
                                     const coords = latLngsData[slipwayId];
@@ -237,9 +237,9 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                                         slipwayData.push(slipway);
                                     }
                                 }
-                                
+
                                 processedCount = endIndex;
-                                
+
                                 if (processedCount < slipwayIds.length) {
                                     // Schedule next batch
                                     if ('requestIdleCallback' in window) {
@@ -251,7 +251,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                                     resolve(slipwayData);
                                 }
                             };
-                            
+
                             processBatch();
                         });
                     };
@@ -308,7 +308,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
         let filtered = slipways;
 
         if (rampLengthFilter) {
-            filtered = filtered.filter((slipway: Slipway) => 
+            filtered = filtered.filter((slipway: Slipway) =>
                 slipway.rampLength && slipway.rampLength === rampLengthFilter
             );
         }
@@ -316,20 +316,20 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
         if (suitabilityFilter) {
             filtered = filtered.filter((slipway: Slipway) => {
                 if (!slipway.suitability) return false;
-                
+
                 // Hierarchical filtering logic
                 if (suitabilityFilter === "Portable Only") {
                     // Portable Only includes all suitability types
                     return true;
                 } else if (suitabilityFilter === "Small trailer can be pushed") {
                     // Small trailer includes itself and Large trailer
-                    return slipway.suitability === "Small trailer can be pushed" || 
-                           slipway.suitability === "Large trailer needs a car";
+                    return slipway.suitability === "Small trailer can be pushed" ||
+                        slipway.suitability === "Large trailer needs a car";
                 } else if (suitabilityFilter === "Large trailer needs a car") {
                     // Large trailer only includes itself
                     return slipway.suitability === "Large trailer needs a car";
                 }
-                
+
                 return false;
             });
         }
@@ -349,8 +349,8 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
     };
 
     // Default map center (London) - will be updated when data loads
-    const defaultCenter: [number, number] = [51.505, -0.09];
-    const mapCenter = filteredSlipways.length > 0 
+    const defaultCenter: [number, number] = [54.2361, -4.5481];
+    const mapCenter = filteredSlipways.length > 0
         ? [filteredSlipways[0].latitude, filteredSlipways[0].longitude] as [number, number]
         : defaultCenter;
 
@@ -417,7 +417,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                         {addSlipwayMode ? '✕ Cancel' : '➕ Add Slipway'}
                     </button>
                 )}
-                
+
                 {/* Filter Toggle Button */}
                 <button
                     onClick={() => setShowFilters(!showFilters)}
@@ -495,79 +495,79 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                     minWidth: '300px'
                 }}>
                     <h4 style={{ margin: '0 0 10px 0', color: '#2c3e50', fontSize: '16px' }}>Filter Slipways</h4>
-                
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                    <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-                            Ramp Length
-                        </label>
-                        <select
-                            value={rampLengthFilter}
-                            onChange={(e) => setRampLengthFilter(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '6px 8px',
-                                border: '1px solid #ddd',
-                                borderRadius: '4px',
-                                fontSize: '14px',
-                                backgroundColor: 'white'
-                            }}
-                        >
-                            <option value="">All ramp lengths</option>
-                            <option value="All of tidal range">All of tidal range</option>
-                            <option value="3/4 tidal">3/4 tidal</option>
-                            <option value="1/2 tidal">1/2 tidal</option>
-                            <option value="1/4 tidal">1/4 tidal</option>
-                            <option value="Non-tidal">Non-tidal</option>
-                        </select>
+
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                Ramp Length
+                            </label>
+                            <select
+                                value={rampLengthFilter}
+                                onChange={(e) => setRampLengthFilter(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '6px 8px',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '4px',
+                                    fontSize: '14px',
+                                    backgroundColor: 'white'
+                                }}
+                            >
+                                <option value="">All ramp lengths</option>
+                                <option value="All of tidal range">All of tidal range</option>
+                                <option value="3/4 tidal">3/4 tidal</option>
+                                <option value="1/2 tidal">1/2 tidal</option>
+                                <option value="1/4 tidal">1/4 tidal</option>
+                                <option value="Non-tidal">Non-tidal</option>
+                            </select>
+                        </div>
+
+                        <div style={{ flex: 1 }}>
+                            <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                Suitability
+                            </label>
+                            <select
+                                value={suitabilityFilter}
+                                onChange={(e) => setSuitabilityFilter(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '6px 8px',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '4px',
+                                    fontSize: '14px',
+                                    backgroundColor: 'white'
+                                }}
+                            >
+                                <option value="">All suitability types</option>
+                                <option value="Large trailer needs a car">Large trailer needs a car</option>
+                                <option value="Small trailer can be pushed">Small trailer can be pushed</option>
+                                <option value="Portable Only">Portable Only</option>
+                            </select>
+                        </div>
                     </div>
-                    
-                    <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-                            Suitability
-                        </label>
-                        <select
-                            value={suitabilityFilter}
-                            onChange={(e) => setSuitabilityFilter(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '6px 8px',
-                                border: '1px solid #ddd',
-                                borderRadius: '4px',
-                                fontSize: '14px',
-                                backgroundColor: 'white'
-                            }}
-                        >
-                            <option value="">All suitability types</option>
-                            <option value="Large trailer needs a car">Large trailer needs a car</option>
-                            <option value="Small trailer can be pushed">Small trailer can be pushed</option>
-                            <option value="Portable Only">Portable Only</option>
-                        </select>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', color: '#666' }}>
+                            Showing {filteredSlipways.length} of {slipways.length} slipways
+                        </span>
+
+                        {(rampLengthFilter || suitabilityFilter) && (
+                            <button
+                                onClick={clearFilters}
+                                style={{
+                                    backgroundColor: '#6c757d',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    fontSize: '12px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Clear Filters
+                            </button>
+                        )}
                     </div>
-                </div>
-                
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', color: '#666' }}>
-                        Showing {filteredSlipways.length} of {slipways.length} slipways
-                    </span>
-                    
-                    {(rampLengthFilter || suitabilityFilter) && (
-                        <button
-                            onClick={clearFilters}
-                            style={{
-                                backgroundColor: '#6c757d',
-                                color: 'white',
-                                border: 'none',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                fontSize: '12px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            Clear Filters
-                        </button>
-                    )}
-                </div>
                 </div>
             )}
 
@@ -591,7 +591,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                 <MapContainer
                     {...({
                         center: mapCenter,
-                        zoom: 13,
+                        zoom: 6,
                         style: { height: '100%', width: '100%' }
                     } as any)}
                 >

@@ -43,6 +43,7 @@
 .dropdown-nav {
     position: relative;
     display: inline-block;
+    margin-left: auto;
 }
 
 .dropdown-toggle {
@@ -553,7 +554,7 @@
     }
 
     .logo-section p {
-        font-size: 1rem;
+        display: none;
     }
 
     .App-main {
