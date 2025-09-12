@@ -8,6 +8,9 @@
   NPM_FLAGS = "--production=false"
   SECRETS_SCAN_ENABLED = "false"
 
+[[plugins]]
+  package = "@netlify/plugin-functions-install-core"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
