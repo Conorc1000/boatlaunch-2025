@@ -1,7 +1,7 @@
 {
   "name": "netlify-functions",
   "version": "1.0.0",
-  "description": "Netlify Functions for boat launch app",
+  "description": "Netlify Functions for boatlaunch app",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
