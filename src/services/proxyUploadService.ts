@@ -5,11 +5,12 @@ export const proxyUploadService = (
     newImgId: string,
     onProgress?: (message: string) => void,
     onSuccess?: (url: string) => void,
-    onError?: (error: string) => void
+    onError?: (error: string) => void,
+    suffix: string = '___Source.jpg'
 ): Promise<string> => {
     return new Promise(async (resolve, reject) => {
         try {
-            const fileName = `WebSitePhotos/${newImgId}___Source.jpg`;
+            const fileName = `WebSitePhotos/${newImgId}${suffix}`;
             
             // Use environment-specific backend URL
             const backendUrl = process.env.NODE_ENV === 'production'

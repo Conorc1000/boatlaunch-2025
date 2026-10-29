@@ -95,9 +95,10 @@ exports.handler = async (event, context) => {
       });
     });
 
+    const region = process.env.AWS_REGION_1 || 'us-east-1';
     const returnData = {
       signed_request: signedUrl,
-      url: `https://${bucketName}.s3.amazonaws.com/${fileName}`
+      url: `https://${bucketName}.s3.${region}.amazonaws.com/${fileName}`
     };
 
     return {

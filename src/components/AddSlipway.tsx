@@ -4,24 +4,18 @@ import L, { LatLngExpression } from 'leaflet';
 import { ref, set, push } from 'firebase/database';
 import { database } from '../firebase';
 import { useAuth } from '../hooks/useAuth';
+import { AlertIcon, ArrowLeftIcon, CheckIcon, PinIcon } from './Icons';
 import 'leaflet/dist/leaflet.css';
 
-// Fix Leaflet icon issue
-const iconRetinaUrl = require('leaflet/dist/images/marker-icon-2x.png');
-const iconUrl = require('leaflet/dist/images/marker-icon.png');
-const shadowUrl = require('leaflet/dist/images/marker-shadow.png');
-
-const iconDefault = L.icon({
-    iconRetinaUrl,
-    iconUrl,
-    shadowUrl,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-    shadowSize: [41, 41]
+// Pin for the new slipway location (does not override the global default marker icon)
+const newSlipwayIcon = L.icon({
+    iconUrl: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 40"><path fill="#0e7490" stroke="#fff" stroke-width="1.5" d="M14 1C7 1 1.5 6.5 1.5 13.5 1.5 23 14 38.5 14 38.5S26.5 23 26.5 13.5C26.5 6.5 21 1 14 1Z"/><circle fill="#fff" cx="14" cy="13.5" r="4.5"/></svg>'
+    ),
+    iconSize: [28, 40],
+    iconAnchor: [14, 39],
+    popupAnchor: [0, -34]
 });
-
-L.Marker.prototype.options.icon = iconDefault;
 
 interface AddSlipwayProps {
     initialLocation?: { latitude: number; longitude: number } | null;
@@ -35,7 +29,6 @@ const AddSlipway: React.FC<AddSlipwayProps> = ({ initialLocation, onNavigate }) 
     
     // Store initial location to prevent it from being lost
     const [storedLocation] = useState(initialLocation);
-    console.log('AddSlipway component initialized with:', { initialLocation, storedLocation });
     
     // Form state
     const [formData, setFormData] = useState({
@@ -143,445 +136,191 @@ const AddSlipway: React.FC<AddSlipwayProps> = ({ initialLocation, onNavigate }) 
         }
     };
 
+
+    const backToMap = () => {
+        if (onNavigate && storedLocation) {
+            onNavigate('map', {
+                centerOnSlipway: {
+                    id: 'preview',
+                    latitude: storedLocation.latitude,
+                    longitude: storedLocation.longitude,
+                    name: 'Selected Location'
+                }
+            });
+        } else if (onNavigate) {
+            onNavigate('map');
+        }
+    };
+
     if (!user) {
         return (
-            <div style={{ padding: '20px', textAlign: 'center' }}>
-                <h2>Authentication Required</h2>
-                <p>You must be logged in to add a new slipway.</p>
-                <button
-                    onClick={() => onNavigate && onNavigate('map')}
-                    style={{
-                        backgroundColor: '#3498db',
-                        color: 'white',
-                        border: 'none',
-                        padding: '10px 20px',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '16px'
-                    }}
-                >
-                    Back to Map
-                </button>
+            <div className="center-state">
+                <h2>Sign in to add a slipway</h2>
+                <p>You need an account to add new slipways to the map.</p>
+                <div className="btn-row">
+                    <button onClick={() => onNavigate && onNavigate('map')} className="btn btn--secondary">
+                        <ArrowLeftIcon size="sm" /> Back to map
+                    </button>
+                    <button onClick={() => onNavigate && onNavigate('signin')} className="btn btn--primary">
+                        Sign in
+                    </button>
+                </div>
             </div>
         );
     }
 
+    const text = (field: keyof typeof formData, label: string, placeholder: string, opts: { type?: string; full?: boolean; required?: boolean; hint?: string } = {}) => (
+        <label className={`field ${opts.full ? 'field--full' : ''}`}>
+            <span className="field-label">{label}{opts.required && <span className="req">*</span>}</span>
+            <input
+                className="input"
+                type={opts.type || 'text'}
+                value={formData[field]}
+                onChange={(e) => handleInputChange(field, e.target.value)}
+                placeholder={placeholder}
+                required={opts.required}
+            />
+            {opts.hint && <span className="field-hint">{opts.hint}</span>}
+        </label>
+    );
+
+    const area = (field: 'upperArea' | 'lowerArea', label: string) => (
+        <label className="field">
+            <span className="field-label">{label}</span>
+            <select className="select" value={formData[field]} onChange={(e) => handleInputChange(field, e.target.value)}>
+                <option value="">Select…</option>
+                {['Harbour', 'Shingle', 'Concrete', 'Sand', 'Rock', 'Mud'].map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+        </label>
+    );
+
+    const longText = (field: keyof typeof formData, label: string, placeholder: string) => (
+        <label className="field field--full">
+            <span className="field-label">{label}</span>
+            <textarea
+                className="textarea"
+                value={formData[field]}
+                onChange={(e) => handleInputChange(field, e.target.value)}
+                placeholder={placeholder}
+            />
+        </label>
+    );
+
     return (
-        <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
-            {/* Header */}
-            <div style={{ marginBottom: '30px', borderBottom: '2px solid #eee', paddingBottom: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <h1 style={{ margin: 0, color: '#2c3e50' }}>Add New Slipway</h1>
-                    <button
-                        onClick={() => onNavigate && onNavigate('map')}
-                        style={{
-                            backgroundColor: '#6c757d',
-                            color: 'white',
-                            border: 'none',
-                            padding: '8px 16px',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '14px'
-                        }}
-                    >
-                        ← Back to Map
-                    </button>
+        <div className="page">
+            <button className="back-link" onClick={backToMap} disabled={saving}>
+                <ArrowLeftIcon size="sm" /> Back to map
+            </button>
+            <div className="page-head">
+                <div>
+                    <h1 className="page-title">Add a slipway</h1>
+                    <p className="page-lead" style={{ marginBottom: 0 }}>Only the name is required. Add as much detail as you can to help other boaters.</p>
                 </div>
-                {initialLocation && (
-                    <p style={{ margin: '10px 0', fontSize: '16px', color: '#666' }}>
-                        Location: {initialLocation.latitude.toFixed(6)}, {initialLocation.longitude.toFixed(6)}
-                    </p>
-                )}
             </div>
 
-            {/* Error Display */}
-            {error && (
-                <div style={{
-                    backgroundColor: '#f8d7da',
-                    color: '#721c24',
-                    padding: '12px',
-                    borderRadius: '4px',
-                    marginBottom: '20px',
-                    border: '1px solid #f5c6cb'
-                }}>
-                    {error}
-                </div>
-            )}
+            <div className="add-layout">
+                <form className="card form" onSubmit={handleSubmit}>
+                    {error && <div className="alert alert--error" role="alert"><AlertIcon />{error}</div>}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
-                {/* Form */}
-                <div>
-                    <form onSubmit={handleSubmit}>
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                Slipway Name *
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.name}
-                                onChange={(e) => handleInputChange('name', e.target.value)}
-                                required
-                                style={{
-                                    width: '100%',
-                                    padding: '8px 12px',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '4px',
-                                    fontSize: '14px'
-                                }}
-                                placeholder="Enter slipway name"
-                            />
+                    <fieldset className="form-section">
+                        <h3 className="form-section-title">Overview</h3>
+                        <p className="form-section-desc">What is it called and what's it like?</p>
+                        <div className="form-grid">
+                            {text('name', 'Slipway name', 'e.g. Harbour Road Slipway', { full: true, required: true })}
+                            {longText('description', 'Description', 'Describe the slipway')}
+                            {text('nearestPlace', 'Nearest place', 'Town or landmark')}
+                            {text('charges', 'Charges', 'e.g. Free, £5 per launch')}
+                            {text('facilities', 'Facilities', 'Parking, Toilets, Café', { full: true, hint: 'Separate each facility with a comma' })}
                         </div>
+                    </fieldset>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                Description
-                            </label>
-                            <textarea
-                                value={formData.description}
-                                onChange={(e) => handleInputChange('description', e.target.value)}
-                                style={{
-                                    width: '100%',
-                                    minHeight: '80px',
-                                    padding: '8px 12px',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '4px',
-                                    fontSize: '14px',
-                                    fontFamily: 'inherit',
-                                    resize: 'vertical'
-                                }}
-                                placeholder="Describe the slipway"
-                            />
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                    Ramp Type
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.rampType}
-                                    onChange={(e) => handleInputChange('rampType', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px'
-                                    }}
-                                    placeholder="e.g., Concrete, Shingle, Sand"
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                    Suitability
-                                </label>
-                                <select
-                                    value={formData.suitability}
-                                    onChange={(e) => handleInputChange('suitability', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px'
-                                    }}
-                                >
-                                    <option value="">Select suitability...</option>
+                    <fieldset className="form-section">
+                        <h3 className="form-section-title">The ramp</h3>
+                        <p className="form-section-desc">Helps people decide whether they can launch here.</p>
+                        <div className="form-grid">
+                            <label className="field">
+                                <span className="field-label">Suitability</span>
+                                <select className="select" value={formData.suitability} onChange={(e) => handleInputChange('suitability', e.target.value)}>
+                                    <option value="">Select…</option>
                                     <option value="Large trailer needs a car">Large trailer needs a car</option>
                                     <option value="Small trailer can be pushed">Small trailer can be pushed</option>
                                     <option value="Portable Only">Portable Only</option>
                                 </select>
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                    Ramp Length
-                                </label>
-                                <select
-                                    value={formData.rampLength}
-                                    onChange={(e) => handleInputChange('rampLength', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px'
-                                    }}
-                                >
-                                    <option value="">Select ramp length...</option>
+                            </label>
+                            <label className="field">
+                                <span className="field-label">Ramp length</span>
+                                <select className="select" value={formData.rampLength} onChange={(e) => handleInputChange('rampLength', e.target.value)}>
+                                    <option value="">Select…</option>
                                     <option value="All of tidal range">All of tidal range</option>
                                     <option value="3/4 tidal">3/4 tidal</option>
                                     <option value="1/2 tidal">1/2 tidal</option>
                                     <option value="1/4 tidal">1/4 tidal</option>
                                     <option value="Non-tidal">Non-tidal</option>
                                 </select>
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                    Charges
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.charges}
-                                    onChange={(e) => handleInputChange('charges', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px'
-                                    }}
-                                    placeholder="e.g., Free, £5 per launch"
-                                />
-                            </div>
-                        </div>
-
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                Facilities
                             </label>
-                            <textarea
-                                value={formData.facilities}
-                                onChange={(e) => handleInputChange('facilities', e.target.value)}
-                                style={{
-                                    width: '100%',
-                                    minHeight: '60px',
-                                    padding: '8px 12px',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '4px',
-                                    fontSize: '14px',
-                                    fontFamily: 'inherit',
-                                    resize: 'vertical'
-                                }}
-                                placeholder="List facilities separated by commas (e.g., Parking, Toilets, Café)"
-                            />
+                            {text('rampType', 'Ramp type', 'e.g. Concrete, Shingle, Sand')}
+                            <div className="field" />
+                            {area('upperArea', 'Upper area')}
+                            {area('lowerArea', 'Lower area')}
+                            {longText('navigationalHazards', 'Navigational hazards', 'Rocks, currents, moorings…')}
                         </div>
+                    </fieldset>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                    Nearest Place
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.nearestPlace}
-                                    onChange={(e) => handleInputChange('nearestPlace', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px'
-                                    }}
-                                    placeholder="Nearest town or landmark"
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                    Email
-                                </label>
-                                <input
-                                    type="email"
-                                    value={formData.email}
-                                    onChange={(e) => handleInputChange('email', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px'
-                                    }}
-                                    placeholder="Contact email"
-                                />
-                            </div>
+                    <fieldset className="form-section">
+                        <h3 className="form-section-title">Access & contact</h3>
+                        <div className="form-grid">
+                            {longText('directions', 'Directions', 'How to find the slipway')}
+                            {text('email', 'Email', 'Contact email', { type: 'email' })}
+                            {text('mobilePhoneNumber', 'Phone', 'Contact phone number', { type: 'tel' })}
+                            {text('website', 'Website', 'https://', { type: 'url', full: true })}
                         </div>
+                    </fieldset>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                    Mobile Phone
-                                </label>
-                                <input
-                                    type="tel"
-                                    value={formData.mobilePhoneNumber}
-                                    onChange={(e) => handleInputChange('mobilePhoneNumber', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px'
-                                    }}
-                                    placeholder="Contact phone number"
-                                />
-                            </div>
+                    <div className="form-actions">
+                        <button type="button" className="btn btn--secondary btn--lg" onClick={backToMap} disabled={saving}>
+                            Cancel
+                        </button>
+                        <button type="submit" className="btn btn--primary btn--lg" disabled={saving || !formData.name.trim()}>
+                            {saving ? <><span className="spinner" /> Saving…</> : <><CheckIcon size="sm" /> Save slipway</>}
+                        </button>
+                    </div>
+                </form>
 
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                    Website
-                                </label>
-                                <input
-                                    type="url"
-                                    value={formData.website}
-                                    onChange={(e) => handleInputChange('website', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px'
-                                    }}
-                                    placeholder="Website URL"
-                                />
-                            </div>
-                        </div>
-
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                Directions
-                            </label>
-                            <textarea
-                                value={formData.directions}
-                                onChange={(e) => handleInputChange('directions', e.target.value)}
-                                style={{
-                                    width: '100%',
-                                    minHeight: '60px',
-                                    padding: '8px 12px',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '4px',
-                                    fontSize: '14px',
-                                    fontFamily: 'inherit',
-                                    resize: 'vertical'
-                                }}
-                                placeholder="Directions to the slipway"
-                            />
-                        </div>
-
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                Navigational Hazards
-                            </label>
-                            <textarea
-                                value={formData.navigationalHazards}
-                                onChange={(e) => handleInputChange('navigationalHazards', e.target.value)}
-                                style={{
-                                    width: '100%',
-                                    minHeight: '60px',
-                                    padding: '8px 12px',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '4px',
-                                    fontSize: '14px',
-                                    fontFamily: 'inherit',
-                                    resize: 'vertical'
-                                }}
-                                placeholder="Any navigational hazards to be aware of"
-                            />
-                        </div>
-
-                        <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
-                            <button
-                                type="submit"
-                                disabled={saving || !formData.name.trim()}
-                                style={{
-                                    backgroundColor: saving || !formData.name.trim() ? '#6c757d' : '#28a745',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '12px 24px',
-                                    borderRadius: '4px',
-                                    cursor: saving || !formData.name.trim() ? 'not-allowed' : 'pointer',
-                                    fontSize: '16px',
-                                    fontWeight: '500',
-                                    marginRight: '10px'
-                                }}
-                            >
-                                {saving ? 'Saving...' : 'Save Slipway'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    console.log('Back to Map clicked, storedLocation:', storedLocation);
-                                    if (onNavigate && storedLocation) {
-                                        console.log('Navigating with centerOnSlipway data');
-                                        onNavigate('map', {
-                                            centerOnSlipway: {
-                                                id: 'preview',
-                                                latitude: storedLocation.latitude,
-                                                longitude: storedLocation.longitude,
-                                                name: 'Selected Location'
-                                            }
-                                        });
-                                    } else if (onNavigate) {
-                                        console.log('Navigating without data - storedLocation is null/undefined');
-                                        onNavigate('map');
-                                    }
-                                }}
-                                disabled={saving}
-                                style={{
-                                    backgroundColor: '#6c757d',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '12px 24px',
-                                    borderRadius: '4px',
-                                    cursor: saving ? 'not-allowed' : 'pointer',
-                                    fontSize: '16px'
-                                }}
-                            >
-                                Back to Map
-                            </button>
-                        </div>
-                    </form>
-                </div>
-
-                {/* Map */}
-                <div>
-                    <h3 style={{ marginTop: 0, marginBottom: '15px', color: '#2c3e50' }}>Location Preview</h3>
+                <aside className="add-preview">
                     {storedLocation ? (
-                        <div style={{ height: '500px', border: '1px solid #ddd', borderRadius: '8px', overflow: 'hidden' }}>
-                            <MapContainer
-                                {...({
-                                    center: [storedLocation.latitude, storedLocation.longitude] as LatLngExpression,
-                                    zoom: 15,
-                                    style: { height: '100%', width: '100%' }
-                                } as any)}
-                            >
-                                <TileLayer
+                        <>
+                            <div className="add-preview-map">
+                                <MapContainer
                                     {...({
-                                        url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                        center: [storedLocation.latitude, storedLocation.longitude] as LatLngExpression,
+                                        zoom: 15,
+                                        style: { height: '100%', width: '100%' }
                                     } as any)}
-                                />
-                                <Marker position={[storedLocation.latitude, storedLocation.longitude] as LatLngExpression}>
-                                    <Popup>
-                                        <div>
-                                            <strong>New Slipway Location</strong>
-                                            <br />
-                                            {storedLocation.latitude.toFixed(6)}, {storedLocation.longitude.toFixed(6)}
-                                        </div>
-                                    </Popup>
-                                </Marker>
-                            </MapContainer>
-                        </div>
+                                >
+                                    <TileLayer
+                                        {...({
+                                            url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                                            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                        } as any)}
+                                    />
+                                    <Marker position={[storedLocation.latitude, storedLocation.longitude] as LatLngExpression} {...({ icon: newSlipwayIcon } as any)}>
+                                        <Popup>New slipway location</Popup>
+                                    </Marker>
+                                </MapContainer>
+                            </div>
+                            <div className="coords">
+                                <PinIcon size="sm" />
+                                {storedLocation.latitude.toFixed(5)}, {storedLocation.longitude.toFixed(5)}
+                            </div>
+                        </>
                     ) : (
-                        <div style={{
-                            height: '500px',
-                            border: '1px solid #ddd',
-                            borderRadius: '8px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            backgroundColor: '#f8f9fa',
-                            color: '#6c757d'
-                        }}>
-                            No location selected. Click on the map to choose a location.
+                        <div className="empty-state">
+                            <PinIcon size="lg" />
+                            <strong>No location selected</strong>
+                            <span>Go back to the map, tap “Add slipway” and then tap where the slipway is.</span>
                         </div>
                     )}
-                </div>
+                </aside>
             </div>
         </div>
     );

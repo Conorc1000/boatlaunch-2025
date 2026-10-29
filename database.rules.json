@@ -1,7 +1,9 @@
 {
   "rules": {
-    ".read": true,
-    ".write": "auth != null",
+    "slipways": {
+      ".read": true,
+      ".write": "auth != null"
+    },
     "slipwayDetails": {
       ".read": true,
       ".write": "auth != null"
@@ -9,6 +11,37 @@
     "latLngs": {
       ".read": true,
       ".write": "auth != null"
+    },
+    "photoMeta": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "suggestions": {
+      "$id": {
+        ".write": "!data.exists()",
+        ".validate": "newData.hasChildren(['type', 'message', 'createdAt'])",
+        "type": {
+          ".validate": "newData.isString() && newData.val().matches(/^(bug|suggestion|other)$/)"
+        },
+        "message": {
+          ".validate": "newData.isString() && newData.val().length >= 5 && newData.val().length <= 5000"
+        },
+        "createdAt": {
+          ".validate": "newData.val() == now"
+        },
+        "email": {
+          ".validate": "newData.isString() && newData.val().length <= 254"
+        },
+        "uid": {
+          ".validate": "auth != null && newData.val() == auth.uid"
+        },
+        "userAgent": {
+          ".validate": "newData.isString() && newData.val().length <= 500"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
     }
   }
 }

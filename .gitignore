@@ -93,3 +93,10 @@ firestore-debug.log
 # Build caches
 .cache/
 *.cache
+
+# Local Netlify folder
+.netlify
+
+# Photo metadata backfill output and local database backups
+scripts/out/
+*-backup.json

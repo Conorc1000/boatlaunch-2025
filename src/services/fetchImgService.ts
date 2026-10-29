@@ -1,32 +1,80 @@
 // TypeScript version of S3 image fetch service
+import { ref, get } from 'firebase/database';
+import { database } from '../firebase';
 
-interface ImageUrl {
+export interface ImageUrl {
     src: string;
     id: string;
+    thumbSrc?: string;
+    takenAt?: number; // From the photo's EXIF capture date
+    addedAt?: number; // Upload time encoded in the image ID
 }
 
-export const fetchImgsService = (imgIds: string[] | undefined): ImageUrl[] => {
-    // Use the same bucket name format as the upload function
-    const bucketName = 'boatlaunchphotos'; // Match the actual S3 bucket name
-    const prefix = `https://${bucketName}.s3.amazonaws.com/WebSitePhotos/`;
-    const suffix = "___Source.jpg";
+// Per-image metadata stored at photoMeta/{imageId}
+export interface PhotoMeta {
+    takenAt?: number;
+    thumb?: boolean;
+}
 
-    const getUrls = (imgIds: string[] | undefined): ImageUrl[] => {
-        console.log("imgIds", imgIds);
+const bucketName = 'boatlaunchphotos'; // Match the actual S3 bucket name
+const region = 'eu-west-1';
+const prefix = `https://${bucketName}.s3.${region}.amazonaws.com/WebSitePhotos/`;
+export const SOURCE_SUFFIX = '___Source.jpg';
+export const THUMB_SUFFIX = '___Thumb.jpg';
 
-        if (!imgIds || imgIds.length === 0) {
-            return [];
+// IDs from the old app ("New1452362240408") and this one ("slipway_<id>_<ms>_<rand>")
+// embed the upload time in ms; legacy numeric IDs carry no date
+export const getImageIdTimestamp = (imgId: string): number | undefined => {
+    const match = imgId.match(/^New(\d{13})$/) || imgId.match(/_(\d{13})_[a-z0-9]+$/);
+    return match ? parseInt(match[1], 10) : undefined;
+};
+
+// Legacy IDs are stored in Firebase as numbers (e.g. 530), and arrays can contain null holes
+const normalizeImgIds = (imgIds: unknown[] | undefined): string[] =>
+    (imgIds || []).filter((imgId) => imgId != null && imgId !== '').map(String);
+
+export const fetchImgsService = (rawImgIds: unknown[] | undefined, meta: Record<string, PhotoMeta> = {}): ImageUrl[] => {
+    const imgIds = normalizeImgIds(rawImgIds);
+
+    return imgIds.map((imgId) => ({
+        src: prefix + imgId + SOURCE_SUFFIX,
+        id: imgId,
+        thumbSrc: meta[imgId]?.thumb ? prefix + imgId + THUMB_SUFFIX : undefined,
+        takenAt: meta[imgId]?.takenAt,
+        addedAt: getImageIdTimestamp(imgId)
+    }));
+};
+
+// Loads photoMeta for each image before building URLs, so the gallery requests thumbnails
+// from the start. Entries are read individually because numeric IDs as keys would make
+// Firebase coerce a parent read into a sparse array.
+export const loadImgsWithMeta = async (rawImgIds: unknown[] | undefined): Promise<ImageUrl[]> => {
+    const imgIds = normalizeImgIds(rawImgIds);
+    if (imgIds.length === 0) {
+        return [];
+    }
+
+    const entries = await Promise.all(imgIds.map(async (imgId) => {
+        try {
+            const snapshot = await get(ref(database, `photoMeta/${imgId}`));
+            return [imgId, (snapshot.val() || {}) as PhotoMeta] as const;
+        } catch (error) {
+            console.warn('Failed to load photo metadata', imgId, error);
+            return [imgId, {} as PhotoMeta] as const;
         }
+    }));
 
-        const urls = imgIds.map((imgId) => ({
-            src: prefix + imgId + suffix,
-            id: imgId
-        }));
+    return fetchImgsService(imgIds, Object.fromEntries(entries));
+};
 
-        return urls;
-    };
-
-    return getUrls(imgIds);
+export const formatPhotoDate = (image: ImageUrl): string | undefined => {
+    if (image.takenAt) {
+        return `Taken ${new Date(image.takenAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    }
+    if (image.addedAt) {
+        return `Added ${new Date(image.addedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}`;
+    }
+    return undefined;
 };
 
 // Helper function to generate unique image ID for new uploads

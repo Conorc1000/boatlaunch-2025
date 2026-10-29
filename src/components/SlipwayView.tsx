@@ -3,18 +3,24 @@ import { ref, get, set, update } from 'firebase/database';
 import { database } from '../firebase';
 import { Slipway, Comment } from '../types/Slipway';
 import { useAuth } from '../hooks/useAuth';
-import { fetchImgsService, generateImageId, validateImageFile } from '../services/fetchImgService';
+import { formatPhotoDate, generateImageId, ImageUrl, loadImgsWithMeta, PhotoMeta, THUMB_SUFFIX, validateImageFile } from '../services/fetchImgService';
+import { createThumbnail, readPhotoTakenAt } from '../services/photoProcessing';
 import proxyUploadService from '../services/proxyUploadService';
+import {
+    AlertIcon, ArrowLeftIcon, CameraIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, EditIcon, GlobeIcon,
+    CopyIcon, LayersIcon, NavigationIcon, PhoneIcon, PinIcon, RulerIcon, TagIcon, TruckIcon, UploadIcon, XIcon
+} from './Icons';
 
 interface SlipwayViewProps {
     slipwayId: string;
     slipwayData?: Slipway;
     onNavigate?: (view: string, data?: any) => void;
+    variant?: 'page' | 'modal';
 }
 
-const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNavigate }) => {
+const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNavigate, variant = 'page' }) => {
     const [slipway, setSlipway] = useState<Slipway | null>(null);
-    const [imageUrls, setImageUrls] = useState<{ src: string, id: string }[]>([]);
+    const [imageUrls, setImageUrls] = useState<ImageUrl[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
@@ -26,6 +32,9 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
     const [editedSlipway, setEditedSlipway] = useState<Slipway | null>(null);
     const [saving, setSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
+    // Raw text for the facilities field so commas survive while typing
+    const [facilitiesText, setFacilitiesText] = useState('');
+    const [coordsCopied, setCoordsCopied] = useState(false);
 
     const { user } = useAuth();
 
@@ -81,15 +90,6 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                     // Use passed data directly
                     setSlipway(slipwayData);
                     setEditedSlipway(slipwayData);
-
-                    // Fetch and set image URLs
-                    if (slipwayData.imgs && Array.isArray(slipwayData.imgs)) {
-                        const images = fetchImgsService(slipwayData.imgs);
-                        setImageUrls(images);
-                    } else {
-                        setImageUrls([]);
-                    }
-
                     setLoading(false);
                 } else {
                     // Fallback: fetch from Firebase if no data passed
@@ -140,15 +140,6 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
 
                     setSlipway(fetchedSlipwayData);
                     setEditedSlipway(fetchedSlipwayData);
-
-                    // Fetch and set image URLs
-                    if (fetchedSlipwayData.imgs && Array.isArray(fetchedSlipwayData.imgs)) {
-                        const images = fetchImgsService(fetchedSlipwayData.imgs);
-                        setImageUrls(images);
-                    } else {
-                        setImageUrls([]);
-                    }
-
                     setLoading(false);
                 }
             } catch (err) {
@@ -160,6 +151,16 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
 
         initializeSlipwayData();
     }, [slipwayId, slipwayData]);
+
+    // Load photo URLs plus their metadata (dates, thumbnails) whenever the image list changes
+    const imgs = slipway?.imgs;
+    useEffect(() => {
+        let cancelled = false;
+        loadImgsWithMeta(Array.isArray(imgs) ? imgs : []).then((images) => {
+            if (!cancelled) setImageUrls(images);
+        });
+        return () => { cancelled = true; };
+    }, [imgs]);
 
     const openImageModal = (imageUrl: string) => {
         setSelectedImageIndex(imageUrls.findIndex(image => image.src === imageUrl));
@@ -187,6 +188,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
         }
         setIsEditing(true);
         setEditedSlipway(slipway ? { ...slipway } : null);
+        setFacilitiesText(slipway?.facilities?.join(', ') || '');
     };
 
     const handleCancel = () => {
@@ -292,19 +294,30 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
 
             // Handle successful upload
             if (uploadUrl && slipway) {
+                // Thumbnail and capture date are nice-to-haves; the photo is saved even if they fail
+                const meta: PhotoMeta = {};
+                const takenAt = await readPhotoTakenAt(file);
+                if (takenAt) meta.takenAt = takenAt;
+                try {
+                    const thumbnail = await createThumbnail(file);
+                    await proxyUploadService(thumbnail, newImageId, undefined, undefined, undefined, THUMB_SUFFIX);
+                    meta.thumb = true;
+                } catch (thumbError) {
+                    console.warn('Thumbnail upload failed, gallery will use the full-size photo:', thumbError);
+                }
+                if (Object.keys(meta).length > 0) {
+                    await set(ref(database, `photoMeta/${newImageId}`), meta);
+                }
+
                 const updatedImgs = [...(slipway.imgs || []), newImageId];
                 const updatedSlipway = {
                     ...slipway,
                     imgs: updatedImgs
                 };
 
-                // Update both slipway states
+                // Update both slipway states; the imgs effect reloads the gallery
                 setSlipway(updatedSlipway);
                 setEditedSlipway(updatedSlipway);
-
-                // Update image URLs immediately
-                const newImages = fetchImgsService(updatedImgs);
-                setImageUrls(newImages);
 
                 // Update only the imgs field in Firebase to preserve other data
                 const slipwayRef = ref(database, `slipwayDetails/${slipwayId}`);
@@ -329,948 +342,474 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
         event.target.value = '';
     };
 
-    const handleFacilitiesChange = (facilitiesText: string) => {
-        const facilities = facilitiesText.split(',').map(f => f.trim()).filter(f => f);
+    const handleFacilitiesChange = (text: string) => {
+        setFacilitiesText(text);
+        const facilities = text.split(',').map(f => f.trim()).filter(f => f);
         handleFieldChange('facilities', facilities);
     };
 
+    // Keyboard navigation for the photo lightbox
+    useEffect(() => {
+        if (selectedImageIndex === null) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') closeImageModal();
+            if (e.key === 'ArrowLeft') navigateImage('prev');
+            if (e.key === 'ArrowRight') navigateImage('next');
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    });
+
+    const isModal = variant === 'modal';
+
+    const copyCoordinates = async (text: string) => {
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch {
+            // Fallback for browsers without the async clipboard API
+            const el = document.createElement('textarea');
+            el.value = text;
+            el.setAttribute('readonly', '');
+            el.style.position = 'fixed';
+            el.style.opacity = '0';
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+        }
+        setCoordsCopied(true);
+        setTimeout(() => setCoordsCopied(false), 2000);
+    };
+    const close = () => onNavigate && onNavigate('map', { refreshData: true });
+
     if (loading) {
         return (
-            <div style={{ padding: '20px', textAlign: 'center' }}>
-                <div style={{ fontSize: '18px', color: '#666' }}>Loading slipway details...</div>
+            <div className="center-state">
+                <span className="spinner spinner--lg" style={{ color: 'var(--primary)' }} />
+                <span>Loading slipway details…</span>
             </div>
         );
     }
 
-    if (error || !slipway) {
+    if (error && !slipway) {
         return (
-            <div style={{ padding: '20px', textAlign: 'center' }}>
-                <div style={{ color: '#d32f2f', marginBottom: '20px' }}>{error || 'Slipway not found'}</div>
-                <button
-                    onClick={() => onNavigate && onNavigate('map')}
-                    style={{
-                        backgroundColor: '#3498db',
-                        color: 'white',
-                        border: 'none',
-                        padding: '10px 20px',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '16px'
-                    }}
-                >
-                    Back to Map
+            <div className="center-state">
+                <AlertIcon size="lg" />
+                <h2>Couldn't load this slipway</h2>
+                <p>{error}</p>
+                <button onClick={() => onNavigate && onNavigate('map')} className="btn btn--primary">
+                    <ArrowLeftIcon /> Back to map
                 </button>
             </div>
         );
     }
 
+    if (!slipway) return null;
+
+    const known = (v?: string) => !!v && v.trim() !== '' && v !== 'Unknown';
+    const websiteHref = slipway.website
+        ? (slipway.website.startsWith('http') ? slipway.website : `https://${slipway.website}`)
+        : '';
+
+    const fact = (icon: React.ReactNode, label: string, value?: string) => (
+        <div className="fact">
+            <div className="fact-label">{icon}{label}</div>
+            <div className={`fact-value ${known(value) ? '' : 'is-empty'}`}>{known(value) ? value : 'Not specified'}</div>
+        </div>
+    );
+
+    const row = (label: string, rawValue: React.ReactNode, empty = 'Not provided') => {
+        const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+        return (
+        <div className="detail-row">
+            <dt>{label}</dt>
+            <dd className={value ? '' : 'is-empty'}>{value || empty}</dd>
+        </div>
+        );
+    };
+
+    const areaOptions = ['Harbour', 'Shingle', 'Concrete', 'Sand', 'Rock', 'Mud'];
+
     return (
-        <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+        <div className="sv">
             {/* Header */}
-            <div style={{ marginBottom: '30px', borderBottom: '2px solid #eee', paddingBottom: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <div className="sv-header">
+                <div className="sv-heading">
                     {isEditing ? (
-                        <>
+                        <label className="field">
+                            <span className="field-label">Slipway name</span>
                             <input
+                                className="input input--title"
                                 type="text"
                                 value={editedSlipway?.name || ''}
                                 onChange={(e) => handleFieldChange('name', e.target.value)}
-                                style={{
-                                    fontSize: '32px',
-                                    fontWeight: 'bold',
-                                    color: '#2c3e50',
-                                    border: '2px solid #3498db',
-                                    borderRadius: '4px',
-                                    padding: '8px 12px',
-                                    background: 'white',
-                                    flex: 1,
-                                    marginRight: '20px'
-                                }}
                             />
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <button
-                                    onClick={handleSave}
-                                    disabled={saving}
-                                    style={{
-                                        backgroundColor: saving ? '#95a5a6' : '#27ae60',
-                                        color: 'white',
-                                        border: 'none',
-                                        padding: '8px 16px',
-                                        borderRadius: '4px',
-                                        cursor: saving ? 'not-allowed' : 'pointer',
-                                        fontSize: '14px'
-                                    }}
-                                >
-                                    {saving ? 'Saving...' : '✓ Save'}
-                                </button>
-                                <button
-                                    onClick={handleCancel}
-                                    disabled={saving}
-                                    style={{
-                                        backgroundColor: '#e74c3c',
-                                        color: 'white',
-                                        border: 'none',
-                                        padding: '8px 16px',
-                                        borderRadius: '4px',
-                                        cursor: saving ? 'not-allowed' : 'pointer',
-                                        fontSize: '14px'
-                                    }}
-                                >
-                                    ✕ Cancel
-                                </button>
-                            </div>
-                        </>
+                        </label>
                     ) : (
                         <>
-                            <h1 style={{ margin: 0, color: '#2c3e50' }}>{slipway.name}</h1>
-                            <div style={{
-                                fontSize: '8px',
-                                color: '#666',
-                                marginTop: '5px',
-                                fontFamily: 'monospace',
-                                backgroundColor: '#f8f9fa',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                display: 'inline-block',
-                                border: '1px solid #e9ecef'
-                            }}>
-                                ID: {slipwayId}
+                            <h1 className="sv-title">{slipway.name}</h1>
+                            <div className="sv-subtitle">
+                                {known(slipway.nearestPlace) && <span><PinIcon size="sm" />{slipway.nearestPlace}</span>}
+                                {imageUrls.length > 0 && <span><CameraIcon size="sm" />{imageUrls.length} photo{imageUrls.length !== 1 ? 's' : ''}</span>}
                             </div>
                         </>
                     )}
-
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                        {!isEditing && (
-                            <button
-                                onClick={handleEdit}
-                                style={{
-                                    backgroundColor: '#3498db',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '8px 16px',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '14px'
-                                }}
-                            >
-                                ✏️ Edit
-                            </button>
-                        )}
-                        <button
-                            onClick={() => onNavigate && onNavigate('map', { refreshData: true })}
-                            style={{
-                                backgroundColor: '#6c757d',
-                                color: 'white',
-                                border: 'none',
-                                padding: '8px 16px',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '14px'
-                            }}
-                        >
-                            ← Back to Map
-                        </button>
-                    </div>
                 </div>
-
-                {isEditing ? (
-                    <textarea
-                        value={editedSlipway?.description || ''}
-                        onChange={(e) => handleFieldChange('description', e.target.value)}
-                        style={{
-                            width: '100%',
-                            minHeight: '80px',
-                            fontSize: '16px',
-                            color: '#666',
-                            border: '2px solid #3498db',
-                            borderRadius: '4px',
-                            padding: '8px 12px',
-                            resize: 'vertical',
-                            fontFamily: 'inherit'
-                        }}
-                        placeholder="Enter slipway description..."
-                    />
-                ) : (
-                    <p style={{ margin: '10px 0', fontSize: '16px', color: '#666' }}>{slipway.description}</p>
-                )}
-            </div>
-
-            {/* Photos Section */}
-            <div style={{ marginBottom: '30px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h2 style={{ color: '#2c3e50', margin: 0 }}>
-                        📸 Photos ({imageUrls.length})
-                    </h2>
-                    
-                    {user && (
-                        <div style={{ position: 'relative' }}>
-                            <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handlePhotoUpload}
-                                style={{ display: 'none' }}
-                                id="photo-upload"
-                                disabled={isUploading}
-                            />
-                            <label
-                                htmlFor="photo-upload"
-                                style={{
-                                    backgroundColor: isUploading ? '#95a5a6' : '#3498db',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '8px 16px',
-                                    borderRadius: '4px',
-                                    cursor: isUploading ? 'not-allowed' : 'pointer',
-                                    fontSize: '14px',
-                                    display: 'inline-block',
-                                    transition: 'background-color 0.3s'
-                                }}
-                            >
-                                {isUploading ? `📤 Uploading... ${uploadProgress}%` : '📷 Add Photo'}
-                            </label>
-                        </div>
+                <div className="btn-row">
+                    {!isEditing && (
+                        <button onClick={handleEdit} className="btn btn--secondary">
+                            <EditIcon size="sm" /> Edit
+                        </button>
+                    )}
+                    {isModal ? (
+                        <button onClick={close} className="btn btn--secondary btn--icon" aria-label="Close">
+                            <XIcon />
+                        </button>
+                    ) : (
+                        <button onClick={close} className="btn btn--secondary">
+                            <ArrowLeftIcon size="sm" /> Map
+                        </button>
                     )}
                 </div>
-
-                {imageUrls.length === 0 ? (
-                    <div style={{
-                        padding: '40px',
-                        textAlign: 'center',
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: '8px',
-                        border: '2px dashed #dee2e6'
-                    }}>
-                        <div style={{ fontSize: '48px', marginBottom: '10px' }}>📷</div>
-                        <div style={{ fontSize: '18px', color: '#6c757d' }}>No photos available</div>
-                        <div style={{ fontSize: '14px', color: '#adb5bd', marginTop: '5px' }}>
-                            Photos will appear here once uploaded
-                        </div>
-                    </div>
-                ) : (
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
-                        gap: '20px'
-                    }}>
-                        {imageUrls.map((image, index) => (
-                            <div
-                                key={image.id}
-                                style={{
-                                    position: 'relative',
-                                    cursor: 'pointer',
-                                    borderRadius: '8px',
-                                    overflow: 'hidden',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                                }}
-                                onClick={() => setSelectedImageIndex(index)}
-                            >
-                                <img
-                                    src={image.src}
-                                    alt={`${slipway?.name} - Photo ${index + 1}`}
-                                    style={{
-                                        width: '100%',
-                                        height: '200px',
-                                        objectFit: 'cover',
-                                        display: 'block'
-                                    }}
-                                    onError={(e) => {
-                                        e.currentTarget.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
-                                    }}
-                                />
-                                <div style={{
-                                    position: 'absolute',
-                                    bottom: 0,
-                                    left: 0,
-                                    right: 0,
-                                    background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
-                                    color: 'white',
-                                    padding: '10px',
-                                    fontSize: '12px'
-                                }}>
-                                    Photo {index + 1} of {imageUrls.length}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
             </div>
 
-            {/* Slipway Details */}
-            <div style={{
-                backgroundColor: '#f8f9fa',
-                padding: '20px',
-                borderRadius: '8px',
-                border: '1px solid #e9ecef'
-            }}>
-                <h2 style={{ color: '#2c3e50', marginBottom: '20px' }}>Slipway Details</h2>
+            {error && <div className="alert alert--error" role="alert"><AlertIcon />{error}</div>}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-                    <div>
-                        {/* Facilities */}
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Facilities:</strong>
-                            {isEditing ? (
-                                <textarea
-                                    value={editedSlipway?.facilities?.join(', ') || ''}
-                                    onChange={(e) => handleFacilitiesChange(e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '60px',
-                                        marginTop: '5px',
-                                        padding: '8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        fontFamily: 'inherit'
-                                    }}
-                                    placeholder="Enter facilities separated by commas..."
-                                />
-                            ) : (
-                                slipway.facilities && slipway.facilities.length > 0 ? (
-                                    <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
-                                        {slipway.facilities.map((facility, index) => (
-                                            <li key={index}>{facility}</li>
-                                        ))}
-                                    </ul>
-                                ) : (
-                                    <p style={{ margin: '5px 0', color: '#999', fontStyle: 'italic' }}>No facilities listed</p>
-                                )
-                            )}
-                        </div>
-
-
-                        {/* Charges */}
-                        <div style={{ margin: '10px 0' }}>
-                            <strong>Charges:</strong>
-                            {isEditing ? (
-                                <input
-                                    type="text"
-                                    value={editedSlipway?.charges || ''}
-                                    onChange={(e) => handleFieldChange('charges', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        width: '200px'
-                                    }}
-                                    placeholder="Enter charges..."
-                                />
-                            ) : (
-                                <span> {slipway.charges}</span>
-                            )}
-                        </div>
-
-                        {/* Nearest Place */}
-                        <div style={{ margin: '10px 0' }}>
-                            <strong>Nearest Place:</strong>
-                            {isEditing ? (
-                                <input
-                                    type="text"
-                                    value={editedSlipway?.nearestPlace || ''}
-                                    onChange={(e) => handleFieldChange('nearestPlace', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        width: '200px'
-                                    }}
-                                    placeholder="Enter nearest place..."
-                                />
-                            ) : (
-                                <span> {slipway.nearestPlace}</span>
-                            )}
-                        </div>
-
-                        {/* Ramp Description */}
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Ramp Description:</strong>
-                            {isEditing ? (
-                                <textarea
-                                    value={editedSlipway?.rampDescription || ''}
-                                    onChange={(e) => handleFieldChange('rampDescription', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '60px',
-                                        marginTop: '5px',
-                                        padding: '8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        fontFamily: 'inherit'
-                                    }}
-                                    placeholder="Enter ramp description..."
-                                />
-                            ) : (
-                                <p style={{ margin: '5px 0', color: slipway.rampDescription ? '#333' : '#999', fontStyle: slipway.rampDescription ? 'normal' : 'italic' }}>
-                                    {slipway.rampDescription || 'No ramp description available'}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div>
-                        {/* Ramp Type */}
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Ramp Type:</strong>
-                            {isEditing ? (
-                                <input
-                                    type="text"
-                                    value={editedSlipway?.rampType || ''}
-                                    onChange={(e) => handleFieldChange('rampType', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        backgroundColor: 'white',
-                                        width: '200px'
-                                    }}
-                                    placeholder="Enter ramp type (e.g., Concrete, Shingle, Sand)..."
-                                />
-                            ) : (
-                                <span> {slipway.rampType}</span>
-                            )}
-                        </div>
-
-                        {/* Suitability */}
-                        <div style={{ margin: '10px 0' }}>
-                            <strong>Suitability:</strong>
-                            {isEditing ? (
-                                <select
-                                    value={editedSlipway?.suitability || ''}
-                                    onChange={(e) => handleFieldChange('suitability', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        width: '220px'
-                                    }}
-                                >
-                                    <option value="">Select suitability...</option>
-                                    <option value="Large trailer needs a car">Large trailer needs a car</option>
-                                    <option value="Small trailer can be pushed">Small trailer can be pushed</option>
-                                    <option value="Portable Only">Portable Only</option>
-                                </select>
-                            ) : (
-                                <span> {slipway.suitability}</span>
-                            )}
-                        </div>
-
-                        {/* Ramp Length */}
-                        <div style={{ margin: '10px 0' }}>
-                            <strong>Ramp Length:</strong>
-                            {isEditing ? (
-                                <select
-                                    value={editedSlipway?.rampLength || ''}
-                                    onChange={(e) => handleFieldChange('rampLength', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        width: '200px',
-                                        backgroundColor: 'white'
-                                    }}
-                                >
-                                    <option value="">Select ramp length...</option>
-                                    <option value="All of tidal range">All of tidal range</option>
-                                    <option value="3/4 tidal">3/4 tidal</option>
-                                    <option value="1/2 tidal">1/2 tidal</option>
-                                    <option value="1/4 tidal">1/4 tidal</option>
-                                    <option value="Non-tidal">Non-tidal</option>
-                                </select>
-                            ) : (
-                                <span> {slipway.rampLength || 'Not specified'}</span>
-                            )}
-                        </div>
-
-                        {/* Upper Area */}
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Upper Area:</strong>
-                            {isEditing ? (
-                                <select
-                                    value={editedSlipway?.upperArea || ''}
-                                    onChange={(e) => handleFieldChange('upperArea', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        backgroundColor: 'white'
-                                    }}
-                                >
-                                    <option value="">Select upper area...</option>
-                                    <option value="Harbour">Harbour</option>
-                                    <option value="Shingle">Shingle</option>
-                                    <option value="Concrete">Concrete</option>
-                                    <option value="Sand">Sand</option>
-                                    <option value="Rock">Rock</option>
-                                    <option value="Mud">Mud</option>
-                                </select>
-                            ) : (
-                                <span> {slipway.upperArea || 'Not specified'}</span>
-                            )}
-                        </div>
-
-                        {/* Lower Area */}
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Lower Area:</strong>
-                            {isEditing ? (
-                                <select
-                                    value={editedSlipway?.lowerArea || ''}
-                                    onChange={(e) => handleFieldChange('lowerArea', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '1px solid #ddd',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        backgroundColor: 'white'
-                                    }}
-                                >
-                                    <option value="">Select lower area...</option>
-                                    <option value="Harbour">Harbour</option>
-                                    <option value="Shingle">Shingle</option>
-                                    <option value="Concrete">Concrete</option>
-                                    <option value="Sand">Sand</option>
-                                    <option value="Rock">Rock</option>
-                                    <option value="Mud">Mud</option>
-                                </select>
-                            ) : (
-                                <span> {slipway.lowerArea || 'Not specified'}</span>
-                            )}
-                        </div>
-
-                        {/* Navigational Hazards */}
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Navigational Hazards:</strong>
-                            {isEditing ? (
-                                <textarea
-                                    value={editedSlipway?.navigationalHazards || ''}
-                                    onChange={(e) => handleFieldChange('navigationalHazards', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '60px',
-                                        marginTop: '5px',
-                                        padding: '8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        fontFamily: 'inherit'
-                                    }}
-                                    placeholder="Enter navigational hazards..."
-                                />
-                            ) : (
-                                <p style={{ margin: '5px 0', color: slipway.navigationalHazards ? '#333' : '#999', fontStyle: slipway.navigationalHazards ? 'normal' : 'italic' }}>
-                                    {slipway.navigationalHazards || 'No navigational hazards noted'}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div>
-                        {/* Directions */}
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Directions:</strong>
-                            {isEditing ? (
-                                <textarea
-                                    value={editedSlipway?.directions || ''}
-                                    onChange={(e) => handleFieldChange('directions', e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '60px',
-                                        marginTop: '5px',
-                                        padding: '8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        fontFamily: 'inherit'
-                                    }}
-                                    placeholder="Enter directions..."
-                                />
-                            ) : (
-                                <p style={{ margin: '5px 0', color: slipway.directions ? '#333' : '#999', fontStyle: slipway.directions ? 'normal' : 'italic' }}>
-                                    {slipway.directions || 'No directions available'}
-                                </p>
-                            )}
-                        </div>
-
-                        {/* Email */}
-                        <div style={{ margin: '10px 0' }}>
-                            <strong>Email:</strong>
-                            {isEditing ? (
-                                <input
-                                    type="email"
-                                    value={editedSlipway?.email || ''}
-                                    onChange={(e) => handleFieldChange('email', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        width: '200px'
-                                    }}
-                                    placeholder="Enter email address..."
-                                />
-                            ) : (
-                                <span> {slipway.email ? <a href={`mailto:${slipway.email}`} style={{ color: '#3498db' }}>{slipway.email}</a> : 'Not provided'}</span>
-                            )}
-                        </div>
-
-                        {/* Mobile Phone */}
-                        <div style={{ margin: '10px 0' }}>
-                            <strong>Mobile Phone:</strong>
-                            {isEditing ? (
-                                <input
-                                    type="tel"
-                                    value={editedSlipway?.mobilePhoneNumber || ''}
-                                    onChange={(e) => handleFieldChange('mobilePhoneNumber', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        width: '200px'
-                                    }}
-                                    placeholder="Enter phone number..."
-                                />
-                            ) : (
-                                <span> {slipway.mobilePhoneNumber ? <a href={`tel:${slipway.mobilePhoneNumber}`} style={{ color: '#3498db' }}>{slipway.mobilePhoneNumber}</a> : 'Not provided'}</span>
-                            )}
-                        </div>
-
-                        {/* Website */}
-                        <div style={{ margin: '10px 0' }}>
-                            <strong>Website:</strong>
-                            {isEditing ? (
-                                <input
-                                    type="url"
-                                    value={editedSlipway?.website || ''}
-                                    onChange={(e) => handleFieldChange('website', e.target.value)}
-                                    style={{
-                                        marginLeft: '10px',
-                                        padding: '4px 8px',
-                                        border: '2px solid #3498db',
-                                        borderRadius: '4px',
-                                        fontSize: '14px',
-                                        width: '200px'
-                                    }}
-                                    placeholder="Enter website URL..."
-                                />
-                            ) : (
-                                <span> {slipway.website ? <a href={slipway.website.startsWith('http') ? slipway.website : `https://${slipway.website}`} target="_blank" rel="noopener noreferrer" style={{ color: '#3498db' }}>{slipway.website}</a> : 'Not provided'}</span>
-                            )}
-                        </div>
-
-                        {/* Coordinates - Read only */}
-                        <p style={{ margin: '10px 0' }}>
-                            <strong>Coordinates:</strong> {slipway.latitude.toFixed(6)}, {slipway.longitude.toFixed(6)}
-                        </p>
-
-                        {/* Comments Section - TEMPORARILY DISABLED */}
-                        {/*
-                        <div style={{ marginTop: '30px', borderTop: '2px solid #e9ecef', paddingTop: '20px' }}>
-                            <h3 style={{ margin: '0 0 20px 0', color: '#2c3e50', fontSize: '20px' }}>
-                                Comments & Reviews ({slipway.comments?.length || 0})
-                            </h3>
-
-                            {/* Add Comment Form - Only for authenticated users */}
-                        {/*
-                            {user && (
-                                <div style={{
-                                    backgroundColor: '#f8f9fa',
-                                    padding: '20px',
-                                    borderRadius: '8px',
-                                    marginBottom: '20px',
-                                    border: '1px solid #e9ecef'
-                                }}>
-                                    <h4 style={{ margin: '0 0 15px 0', color: '#495057', fontSize: '16px' }}>
-                                        Add Your Comment
-                                    </h4>
-                                    
-                                    {/* Rating Stars */}
-                        {/*
-                                    <div style={{ marginBottom: '15px' }}>
-                                        <label style={{ display: 'block', fontSize: '14px', color: '#666', marginBottom: '8px' }}>
-                                            Rating (optional):
-                                        </label>
-                                        <div style={{ display: 'flex', gap: '5px' }}>
-                                            {[1, 2, 3, 4, 5].map((star) => (
-                                                <button
-                                                    key={star}
-                                                    type="button"
-                                                    onClick={() => setNewRating(star)}
-                                                    style={{
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        fontSize: '24px',
-                                                        cursor: 'pointer',
-                                                        color: star <= newRating ? '#ffc107' : '#dee2e6',
-                                                        padding: '0',
-                                                        lineHeight: '1'
-                                                    }}
-                                                >
-                                                    ★
-                                                </button>
-                                            ))}
-                                            {newRating > 0 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setNewRating(0)}
-                                                    style={{
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        fontSize: '12px',
-                                                        cursor: 'pointer',
-                                                        color: '#6c757d',
-                                                        marginLeft: '10px'
-                                                    }}
-                                                >
-                                                    Clear
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Comment Text */}
-                        {/*
-                                    <textarea
-                                        value={newComment}
-                                        onChange={(e) => setNewComment(e.target.value)}
-                                        placeholder="Share your experience with this slipway..."
-                                        style={{
-                                            width: '100%',
-                                            minHeight: '100px',
-                                            padding: '12px',
-                                            border: '1px solid #ced4da',
-                                            borderRadius: '4px',
-                                            fontSize: '14px',
-                                            fontFamily: 'inherit',
-                                            resize: 'vertical',
-                                            marginBottom: '15px'
-                                        }}
-                                    />
-
-                                    {/* Submit Button */}
-                        {/*
-                                    <button
-                                        onClick={handleSubmitComment}
-                                        disabled={!newComment.trim() || isSubmittingComment}
-                                        style={{
-                                            backgroundColor: newComment.trim() && !isSubmittingComment ? '#28a745' : '#6c757d',
-                                            color: 'white',
-                                            border: 'none',
-                                            padding: '10px 20px',
-                                            borderRadius: '4px',
-                                            cursor: newComment.trim() && !isSubmittingComment ? 'pointer' : 'not-allowed',
-                                            fontSize: '14px',
-                                            fontWeight: '500'
-                                        }}
-                                    >
-                                        {isSubmittingComment ? 'Posting...' : 'Post Comment'}
-                                    </button>
+            {isEditing ? (
+                <>
+                    <div className="sv-section">
+                        <div className="form">
+                            <fieldset className="form-section">
+                                <h3 className="form-section-title">Overview</h3>
+                                <div className="form-grid">
+                                    <label className="field field--full">
+                                        <span className="field-label">Description</span>
+                                        <textarea
+                                            className="textarea"
+                                            value={editedSlipway?.description || ''}
+                                            onChange={(e) => handleFieldChange('description', e.target.value)}
+                                            placeholder="What's this slipway like?"
+                                        />
+                                    </label>
+                                    <label className="field">
+                                        <span className="field-label">Nearest place</span>
+                                        <input className="input" type="text" value={editedSlipway?.nearestPlace || ''}
+                                            onChange={(e) => handleFieldChange('nearestPlace', e.target.value)} placeholder="Town or landmark" />
+                                    </label>
+                                    <label className="field">
+                                        <span className="field-label">Charges</span>
+                                        <input className="input" type="text" value={editedSlipway?.charges || ''}
+                                            onChange={(e) => handleFieldChange('charges', e.target.value)} placeholder="e.g. Free, £5 per launch" />
+                                    </label>
+                                    <label className="field field--full">
+                                        <span className="field-label">Facilities</span>
+                                        <input className="input" type="text" value={facilitiesText}
+                                            onChange={(e) => handleFacilitiesChange(e.target.value)} placeholder="Parking, Toilets, Café" />
+                                        <span className="field-hint">Separate each facility with a comma</span>
+                                    </label>
                                 </div>
-                            )}
+                            </fieldset>
 
-                            {/* Comments List */}
-                        {/*
-                            <div>
-                                {slipway.comments && slipway.comments.length > 0 ? (
-                                    slipway.comments
-                                        .sort((a, b) => b.timestamp - a.timestamp)
-                                        .map((comment) => (
-                                            <div
-                                                key={comment.id}
-                                                style={{
-                                                    backgroundColor: 'white',
-                                                    border: '1px solid #e9ecef',
-                                                    borderRadius: '8px',
-                                                    padding: '15px',
-                                                    marginBottom: '15px'
-                                                }}
-                                            >
-                                                {/* Comment Header */}
-                        {/*
-                                                <div style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                    marginBottom: '10px'
-                                                }}>
-                                                    <div>
-                                                        <strong style={{ color: '#2c3e50', fontSize: '14px' }}>
-                                                            {comment.userName}
-                                                        </strong>
-                                                        {comment.rating && (
-                                                            <div style={{ display: 'inline-block', marginLeft: '10px' }}>
-                                                                {[1, 2, 3, 4, 5].map((star) => (
-                                                                    <span
-                                                                        key={star}
-                                                                        style={{
-                                                                            color: star <= comment.rating! ? '#ffc107' : '#dee2e6',
-                                                                            fontSize: '16px'
-                                                                        }}
-                                                                    >
-                                                                        ★
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <span style={{ fontSize: '12px', color: '#6c757d' }}>
-                                                        {new Date(comment.timestamp).toLocaleDateString()}
-                                                    </span>
-                                                </div>
+                            <fieldset className="form-section">
+                                <h3 className="form-section-title">The ramp</h3>
+                                <div className="form-grid">
+                                    <label className="field">
+                                        <span className="field-label">Suitability</span>
+                                        <select className="select" value={editedSlipway?.suitability || ''}
+                                            onChange={(e) => handleFieldChange('suitability', e.target.value)}>
+                                            <option value="">Select…</option>
+                                            <option value="Large trailer needs a car">Large trailer needs a car</option>
+                                            <option value="Small trailer can be pushed">Small trailer can be pushed</option>
+                                            <option value="Portable Only">Portable Only</option>
+                                        </select>
+                                    </label>
+                                    <label className="field">
+                                        <span className="field-label">Ramp length</span>
+                                        <select className="select" value={editedSlipway?.rampLength || ''}
+                                            onChange={(e) => handleFieldChange('rampLength', e.target.value)}>
+                                            <option value="">Select…</option>
+                                            <option value="All of tidal range">All of tidal range</option>
+                                            <option value="3/4 tidal">3/4 tidal</option>
+                                            <option value="1/2 tidal">1/2 tidal</option>
+                                            <option value="1/4 tidal">1/4 tidal</option>
+                                            <option value="Non-tidal">Non-tidal</option>
+                                        </select>
+                                    </label>
+                                    <label className="field">
+                                        <span className="field-label">Ramp type</span>
+                                        <input className="input" type="text" value={editedSlipway?.rampType || ''}
+                                            onChange={(e) => handleFieldChange('rampType', e.target.value)} placeholder="e.g. Concrete, Shingle" />
+                                    </label>
+                                    <div className="field" />
+                                    <label className="field">
+                                        <span className="field-label">Upper area</span>
+                                        <select className="select" value={editedSlipway?.upperArea || ''}
+                                            onChange={(e) => handleFieldChange('upperArea', e.target.value)}>
+                                            <option value="">Select…</option>
+                                            {areaOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                                        </select>
+                                    </label>
+                                    <label className="field">
+                                        <span className="field-label">Lower area</span>
+                                        <select className="select" value={editedSlipway?.lowerArea || ''}
+                                            onChange={(e) => handleFieldChange('lowerArea', e.target.value)}>
+                                            <option value="">Select…</option>
+                                            {areaOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                                        </select>
+                                    </label>
+                                    <label className="field field--full">
+                                        <span className="field-label">Ramp description</span>
+                                        <textarea className="textarea" value={editedSlipway?.rampDescription || ''}
+                                            onChange={(e) => handleFieldChange('rampDescription', e.target.value)} placeholder="Surface, gradient, condition…" />
+                                    </label>
+                                    <label className="field field--full">
+                                        <span className="field-label">Navigational hazards</span>
+                                        <textarea className="textarea" value={editedSlipway?.navigationalHazards || ''}
+                                            onChange={(e) => handleFieldChange('navigationalHazards', e.target.value)} placeholder="Rocks, currents, moorings…" />
+                                    </label>
+                                </div>
+                            </fieldset>
 
-                                                {/* Comment Text */}
-                        {/*
-                                                <p style={{
-                                                    margin: '0',
-                                                    fontSize: '14px',
-                                                    color: '#495057',
-                                                    lineHeight: '1.5'
-                                                }}>
-                                                    {comment.text}
-                                                </p>
-                                            </div>
-                                        ))
-                                ) : (
-                                    <div style={{
-                                        textAlign: 'center',
-                                        padding: '40px',
-                                        color: '#6c757d',
-                                        fontStyle: 'italic'
-                                    }}>
-                                        No comments yet. Be the first to share your experience!
-                                    </div>
-                                )}
-                            </div>
+                            <fieldset className="form-section">
+                                <h3 className="form-section-title">Access & contact</h3>
+                                <div className="form-grid">
+                                    <label className="field field--full">
+                                        <span className="field-label">Directions</span>
+                                        <textarea className="textarea" value={editedSlipway?.directions || ''}
+                                            onChange={(e) => handleFieldChange('directions', e.target.value)} placeholder="How to find the slipway" />
+                                    </label>
+                                    <label className="field">
+                                        <span className="field-label">Email</span>
+                                        <input className="input" type="email" inputMode="email" value={editedSlipway?.email || ''}
+                                            onChange={(e) => handleFieldChange('email', e.target.value)} />
+                                    </label>
+                                    <label className="field">
+                                        <span className="field-label">Phone</span>
+                                        <input className="input" type="tel" inputMode="tel" value={editedSlipway?.mobilePhoneNumber || ''}
+                                            onChange={(e) => handleFieldChange('mobilePhoneNumber', e.target.value)} />
+                                    </label>
+                                    <label className="field field--full">
+                                        <span className="field-label">Website</span>
+                                        <input className="input" type="url" inputMode="url" value={editedSlipway?.website || ''}
+                                            onChange={(e) => handleFieldChange('website', e.target.value)} placeholder="https://" />
+                                    </label>
+                                </div>
+                            </fieldset>
                         </div>
-                        */}
                     </div>
-                </div>
-            </div>
 
-            {/* Image Modal */}
-            {
-                selectedImageIndex !== null && (
-                    <div style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 3000
-                    }}>
-                        <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
-                            <img
-                                src={imageUrls[selectedImageIndex]?.src}
-                                alt={`${slipway?.name} - Photo ${selectedImageIndex + 1}`}
-                                style={{
-                                    maxWidth: '100%',
-                                    maxHeight: '100%',
-                                    objectFit: 'contain'
-                                }}
-                            />
-
-                            {/* Close button */}
-                            <button
-                                onClick={closeImageModal}
-                                style={{
-                                    position: 'absolute',
-                                    top: '10px',
-                                    right: '10px',
-                                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '50%',
-                                    width: '40px',
-                                    height: '40px',
-                                    fontSize: '20px',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                ×
+                    <div className="edit-bar">
+                        <span>Editing slipway details</span>
+                        <div className="btn-row">
+                            <button onClick={handleCancel} disabled={saving} className="btn btn--secondary">Cancel</button>
+                            <button onClick={handleSave} disabled={saving} className="btn btn--primary">
+                                {saving ? <><span className="spinner" /> Saving…</> : <><CheckIcon size="sm" /> Save changes</>}
                             </button>
+                        </div>
+                    </div>
+                </>
+            ) : (
+                <>
+                    {slipway.description && slipway.description !== 'No description available' && (
+                        <p className="sv-description">{slipway.description.trim()}</p>
+                    )}
 
-                            {/* Navigation buttons */}
-                            {imageUrls.length > 1 && (
+                    {/* Quick actions – most useful on a phone at the water's edge */}
+                    <div className="btn-row sv-actions">
+                        <a
+                            className="btn btn--primary"
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${slipway.latitude},${slipway.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            <NavigationIcon size="sm" /> Directions
+                        </a>
+                        {slipway.mobilePhoneNumber && (
+                            <a className="btn btn--secondary" href={`tel:${slipway.mobilePhoneNumber}`}>
+                                <PhoneIcon size="sm" /> Call
+                            </a>
+                        )}
+                        {websiteHref && (
+                            <a className="btn btn--secondary" href={websiteHref} target="_blank" rel="noopener noreferrer">
+                                <GlobeIcon size="sm" /> Website
+                            </a>
+                        )}
+                    </div>
+
+                    <div className="sv-facts">
+                        {fact(<TruckIcon size="sm" />, 'Suitability', slipway.suitability)}
+                        {fact(<RulerIcon size="sm" />, 'Ramp length', slipway.rampLength)}
+                        {fact(<LayersIcon size="sm" />, 'Ramp type', slipway.rampType)}
+                        {fact(<TagIcon size="sm" />, 'Charges', slipway.charges)}
+                    </div>
+
+                    {known(slipway.navigationalHazards) && (
+                        <div className="hazard-callout" role="note">
+                            <AlertIcon />
+                            <div>
+                                <strong>Navigational hazards</strong>
+                                {slipway.navigationalHazards}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Photos */}
+                    <section className="sv-section">
+                        <div className="sv-section-head">
+                            <h2 className="sv-section-title">
+                                Photos <span className="count">{imageUrls.length}</span>
+                            </h2>
+                            {user && (
                                 <>
-                                    <button
-                                        onClick={() => navigateImage('prev')}
-                                        style={{
-                                            position: 'absolute',
-                                            left: '10px',
-                                            top: '50%',
-                                            transform: 'translateY(-50%)',
-                                            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                                            color: 'white',
-                                            border: 'none',
-                                            borderRadius: '50%',
-                                            width: '40px',
-                                            height: '40px',
-                                            fontSize: '20px',
-                                            cursor: 'pointer'
-                                        }}
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={handlePhotoUpload}
+                                        style={{ display: 'none' }}
+                                        id="photo-upload"
+                                        disabled={isUploading}
+                                    />
+                                    <label
+                                        htmlFor="photo-upload"
+                                        className={`btn btn--secondary btn--sm ${isUploading ? 'is-disabled' : ''}`}
+                                        aria-disabled={isUploading}
                                     >
-                                        ‹
-                                    </button>
-                                    <button
-                                        onClick={() => navigateImage('next')}
-                                        style={{
-                                            position: 'absolute',
-                                            right: '10px',
-                                            top: '50%',
-                                            transform: 'translateY(-50%)',
-                                            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                                            color: 'white',
-                                            border: 'none',
-                                            borderRadius: '50%',
-                                            width: '40px',
-                                            height: '40px',
-                                            fontSize: '20px',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        ›
-                                    </button>
+                                        {isUploading
+                                            ? <><span className="spinner" /> Uploading {uploadProgress}%</>
+                                            : <><UploadIcon size="sm" /> Add photo</>}
+                                    </label>
                                 </>
                             )}
-
-                            {/* Image counter */}
-                            <div style={{
-                                position: 'absolute',
-                                bottom: '10px',
-                                left: '50%',
-                                transform: 'translateX(-50%)',
-                                backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                                color: 'white',
-                                padding: '5px 10px',
-                                borderRadius: '15px',
-                                fontSize: '14px'
-                            }}>
-                                {selectedImageIndex + 1} of {imageUrls.length}
-                            </div>
                         </div>
+
+                        {isUploading && (
+                            <div className="upload-progress"><div style={{ width: `${uploadProgress}%` }} /></div>
+                        )}
+
+                        {imageUrls.length === 0 ? (
+                            <div className="empty-state">
+                                <CameraIcon size="lg" />
+                                <strong>No photos yet</strong>
+                                {user ? (
+                                    <span>Been here? Help other boaters by adding a photo.</span>
+                                ) : (
+                                    <span>
+                                        <button className="link-button" onClick={() => onNavigate && onNavigate('signin')}>Sign in</button> to add the first photo.
+                                    </span>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="gallery">
+                                {imageUrls.map((image, index) => {
+                                    const dateLabel = formatPhotoDate(image);
+                                    return (
+                                        <button
+                                            key={image.id}
+                                            className="gallery-item"
+                                            onClick={() => setSelectedImageIndex(index)}
+                                            aria-label={`Open photo ${index + 1} of ${imageUrls.length}${dateLabel ? `, ${dateLabel.toLowerCase()}` : ''}`}
+                                        >
+                                            <img
+                                                src={image.thumbSrc || image.src}
+                                                alt={`${slipway.name} (${index + 1} of ${imageUrls.length})`}
+                                                loading="lazy"
+                                                onError={() => {
+                                                    setImageUrls(prev => image.thumbSrc
+                                                        // Missing thumbnail: fall back to the full-size photo
+                                                        ? prev.map(img => img.id === image.id ? { ...img, thumbSrc: undefined } : img)
+                                                        // Drop photos whose S3 object no longer exists rather than showing a placeholder
+                                                        : prev.filter(img => img.id !== image.id));
+                                                }}
+                                            />
+                                            {dateLabel && <span className="gallery-item-date">{dateLabel}</span>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </section>
+
+                    {/* Details */}
+                    <div className="sv-columns">
+                        <section className="sv-section">
+                            <div className="sv-section-head">
+                                <h2 className="sv-section-title">The launch</h2>
+                            </div>
+                            <dl className="detail-list">
+                                {row('Ramp', known(slipway.rampDescription) ? slipway.rampDescription : null, 'No description')}
+                                {row('Upper area', known(slipway.upperArea) ? slipway.upperArea : null, 'Not specified')}
+                                {row('Lower area', known(slipway.lowerArea) ? slipway.lowerArea : null, 'Not specified')}
+                                {row('Facilities', slipway.facilities && slipway.facilities.length > 0 ? (
+                                    <span className="tag-list">
+                                        {slipway.facilities.map((f, i) => <span key={i} className="tag">{f}</span>)}
+                                    </span>
+                                ) : null, 'None listed')}
+                            </dl>
+                        </section>
+
+                        <section className="sv-section">
+                            <div className="sv-section-head">
+                                <h2 className="sv-section-title">Access & contact</h2>
+                            </div>
+                            <dl className="detail-list">
+                                {row('Directions', known(slipway.directions) ? slipway.directions : null)}
+                                {row('Email', slipway.email ? <a href={`mailto:${slipway.email}`}>{slipway.email}</a> : null)}
+                                {row('Phone', slipway.mobilePhoneNumber ? <a href={`tel:${slipway.mobilePhoneNumber}`}>{slipway.mobilePhoneNumber}</a> : null)}
+                                {row('Website', websiteHref ? <a href={websiteHref} target="_blank" rel="noopener noreferrer">{slipway.website}</a> : null)}
+                                {row('Coordinates', (
+                                    <button
+                                        type="button"
+                                        className={`copy-chip ${coordsCopied ? 'is-copied' : ''}`}
+                                        onClick={() => copyCoordinates(`${slipway.latitude.toFixed(5)}, ${slipway.longitude.toFixed(5)}`)}
+                                        title="Copy coordinates"
+                                    >
+                                        {slipway.latitude.toFixed(5)}, {slipway.longitude.toFixed(5)}
+                                        {coordsCopied ? <><CheckIcon size="sm" /> Copied</> : <CopyIcon size="sm" />}
+                                    </button>
+                                ))}
+                                <span className="sr-only" aria-live="polite">{coordsCopied ? 'Coordinates copied' : ''}</span>
+                            </dl>
+                        </section>
                     </div>
-                )
-            }
-        </div >
+
+                    <div className="sv-meta">ID <code>{slipwayId}</code></div>
+                </>
+            )}
+
+            {/* Photo lightbox */}
+            {selectedImageIndex !== null && (
+                <div className="lightbox" onClick={(e) => { if (e.target === e.currentTarget) closeImageModal(); }}>
+                    <img
+                        src={imageUrls[selectedImageIndex]?.src}
+                        alt={`${slipway.name} (${selectedImageIndex + 1} of ${imageUrls.length})`}
+                        onError={(e) => {
+                            // Originals some browsers can't decode (e.g. HEIC) still have a JPEG thumbnail
+                            const thumbSrc = imageUrls[selectedImageIndex]?.thumbSrc;
+                            if (thumbSrc && e.currentTarget.src !== thumbSrc) e.currentTarget.src = thumbSrc;
+                        }}
+                    />
+                    <button className="lightbox-btn lightbox-btn--close" onClick={closeImageModal} aria-label="Close photo">
+                        <XIcon />
+                    </button>
+                    {imageUrls.length > 1 && (
+                        <>
+                            <button className="lightbox-btn lightbox-btn--prev" onClick={() => navigateImage('prev')} aria-label="Previous photo">
+                                <ChevronLeftIcon />
+                            </button>
+                            <button className="lightbox-btn lightbox-btn--next" onClick={() => navigateImage('next')} aria-label="Next photo">
+                                <ChevronRightIcon />
+                            </button>
+                        </>
+                    )}
+                    <div className="lightbox-counter">
+                        {selectedImageIndex + 1} / {imageUrls.length}
+                        {imageUrls[selectedImageIndex] && formatPhotoDate(imageUrls[selectedImageIndex]) && (
+                            <> · {formatPhotoDate(imageUrls[selectedImageIndex])}</>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
     );
 };
 
