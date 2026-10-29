@@ -3,12 +3,13 @@ import { MapContainer, TileLayer, Marker, Popup, CircleMarker, ZoomControl, useM
 import L, { LatLngExpression } from 'leaflet';
 import { ref, get } from 'firebase/database';
 import { database } from '../firebase';
-import { Slipway } from '../types/Slipway';
+import { OsmSlipway, Slipway } from '../types/Slipway';
+import { osmToSlipway } from '../services/osmToSlipway';
 import { useAuth } from '../hooks/useAuth';
 import SlipwayView from './SlipwayView';
 import {
     SearchIcon, FilterIcon, PlusIcon, XIcon, PinIcon, LocateIcon, CameraIcon,
-    AlertIcon, NavigationIcon, ChevronRightIcon, CheckIcon
+    AlertIcon, MapIcon, ChevronRightIcon, CheckIcon, StreetViewIcon, LayersIcon
 } from './Icons';
 import 'leaflet/dist/leaflet.css';
 
@@ -35,6 +36,15 @@ const iconWithPhotos = L.icon({
         <rect fill="#ffffff" x="11" y="7.2" width="6" height="2.5" rx="1"/>
         <circle fill="#0e7490" cx="14" cy="13.8" r="2.6"/>
     `),
+    iconSize: [24, 34],
+    iconAnchor: [12, 33],
+    popupAnchor: [0, -29],
+    tooltipAnchor: [12, -22]
+});
+
+// Admin-only OpenStreetMap imports: amber with a diamond so they can't be mistaken for Boatlaunch slipways
+const iconOsm = L.icon({
+    iconUrl: pinSvg('#d97706', '#ffffff', '<path fill="#ffffff" d="M14 8.5 19 13.5 14 18.5 9 13.5Z"/>'),
     iconSize: [24, 34],
     iconAnchor: [12, 33],
     popupAnchor: [0, -29],
@@ -90,8 +100,15 @@ const MapBridge: React.FC<{ onReady: (map: any) => void }> = ({ onReady }) => {
     return null;
 };
 
-const directionsUrl = (s: Slipway) =>
-    `https://www.google.com/maps/dir/?api=1&destination=${s.latitude},${s.longitude}`;
+type LatLng = { latitude: number; longitude: number };
+
+// Opens the location in Google Maps, where the user can choose directions, satellite view, etc.
+const googleMapsUrl = (s: LatLng) =>
+    `https://www.google.com/maps/search/?api=1&query=${s.latitude},${s.longitude}`;
+
+// Opens Google Street View at the nearest available panorama
+const streetViewUrl = (s: LatLng) =>
+    `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.latitude},${s.longitude}`;
 
 const hasValue = (v?: string) => !!v && v.trim() !== '' && v !== 'Unknown';
 
@@ -127,8 +144,43 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
     const [showFilters, setShowFilters] = useState<boolean>(false);
     const [addSlipwayMode, setAddSlipwayMode] = useState<boolean>(false);
     const [showSuccessMessage, setShowSuccessMessage] = useState<string | null>(null);
+    const [showOsm, setShowOsm] = useState<boolean>(true);
+    const [osmSlipways, setOsmSlipways] = useState<OsmSlipway[] | null>(null);
+    const [osmLoading, setOsmLoading] = useState<boolean>(false);
+    const [osmError, setOsmError] = useState<string | null>(null);
+    const [osmUnavailable, setOsmUnavailable] = useState<boolean>(false);
 
     const { user } = useAuth();
+    const osmVisible = showOsm && !osmUnavailable;
+    const osmAsSlipways = useMemo(() => (osmSlipways || []).map(osmToSlipway), [osmSlipways]);
+    // Boatlaunch slipways plus unverified OSM imports; filters and search apply to both
+    const allSlipways = useMemo(
+        () => (osmVisible ? [...slipways, ...osmAsSlipways] : slipways),
+        [slipways, osmAsSlipways, osmVisible]
+    );
+
+    // OSM imports load separately so switching them off skips the extra download
+    useEffect(() => {
+        if (!osmVisible || osmSlipways || osmLoading || osmError) return;
+        setOsmLoading(true);
+        setOsmError(null);
+        get(ref(database, 'osmSlipways'))
+            .then((snapshot) => {
+                const value = snapshot.val() || {};
+                setOsmSlipways(Object.entries(value).map(([id, s]: [string, any]) => ({ id, ...s })));
+            })
+            .catch((err) => {
+                console.error('Failed to load OSM slipways:', err);
+                if (String(err?.message || err).includes('ermission')) {
+                    // The database rules don't allow this visitor to read them: quietly leave them off the map
+                    setOsmUnavailable(true);
+                } else {
+                    setOsmError('Could not load OpenStreetMap slipways');
+                    setShowOsm(false);
+                }
+            })
+            .finally(() => setOsmLoading(false));
+    }, [osmVisible, osmSlipways, osmLoading, osmError]);
 
     // Handle map click for adding new slipway
     const handleMapClick = (lat: number, lng: number) => {
@@ -181,7 +233,10 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                                 longitude: data.longitude || parseFloat(data.coords?.[1]) || 0,
                                 facilities: data.facilities || (data.Facilities ? data.Facilities.split(', ').filter((f: string) => f.trim()) : []),
                                 imgs: data.imgs || data.ImageIds || [],
-                                comments: data.comments || [],
+                                createdBy: data.createdBy,
+                                createdAt: data.createdAt,
+                                updatedBy: data.updatedBy,
+                                updatedAt: data.updatedAt,
                                 charges: data.charges || data.Charges || 'Unknown',
                                 nearestPlace: data.nearestPlace || data.NearestPlace || 'Unknown',
                                 rampType: data.rampType || data.RampType || 'Unknown',
@@ -252,7 +307,10 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                                             longitude: parseFloat(coords[1]),
                                             facilities: details.Facilities ? details.Facilities.split(', ').filter((f: string) => f.trim()) : [],
                                             imgs: details.imgs || details.ImageIds || [],
-                                            comments: details.comments || [],
+                                            createdBy: details.createdBy,
+                                            createdAt: details.createdAt,
+                                            updatedBy: details.updatedBy,
+                                            updatedAt: details.updatedAt,
                                             charges: details.Charges || 'Unknown',
                                             nearestPlace: details.NearestPlace || 'Unknown',
                                             rampType: details.RampType || 'Unknown',
@@ -338,7 +396,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
 
     // Filter slipways based on selected filters
     useEffect(() => {
-        let filtered = slipways;
+        let filtered = allSlipways;
 
         if (rampLengthFilter) {
             filtered = filtered.filter((slipway: Slipway) =>
@@ -376,7 +434,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
         }
 
         setFilteredSlipways(filtered);
-    }, [slipways, rampLengthFilter, suitabilityFilter, chargesFilter, photosOnly]);
+    }, [allSlipways, rampLengthFilter, suitabilityFilter, chargesFilter, photosOnly]);
 
     // Clear filters
     const clearFilters = () => {
@@ -405,10 +463,10 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
     const searchResults = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) return [];
-        return slipways
+        return allSlipways
             .filter(s => s.name.toLowerCase().includes(q) || (s.nearestPlace || '').toLowerCase().includes(q))
             .slice(0, 8);
-    }, [searchQuery, slipways]);
+    }, [searchQuery, allSlipways]);
 
     const activeFilterCount = [rampLengthFilter, suitabilityFilter, chargesFilter.length > 0, photosOnly].filter(Boolean).length;
 
@@ -461,6 +519,58 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
         const t = setTimeout(() => setLocateError(null), 5000);
         return () => clearTimeout(t);
     }, [locateError]);
+
+    // Shared by Boatlaunch slipways and unverified OSM imports
+    const renderMarker = (slipway: Slipway) => {
+                const photoCount = slipway.imgs?.length || 0;
+
+                return (
+                    <Marker
+                        key={slipway.id}
+                        position={[slipway.latitude, slipway.longitude] as LatLngExpression}
+                        ref={(m: any) => { if (m) markerRefs.current[slipway.id] = m; }}
+                        {...{ icon: slipway.source === 'OSM' ? iconOsm : photoCount > 0 ? iconWithPhotos : iconDefault }}
+                    >
+                        <Popup {...({ autoPanPaddingTopLeft: [16, 96], autoPanPaddingBottomRight: [16, 90] } as any)}>
+                            <div className="sw-popup">
+                                <div className="sw-popup__body">
+                                    <h3 className="sw-popup__title">{truncateText(slipway.name, 100)}</h3>
+                                    {hasValue(slipway.nearestPlace) && (
+                                        <div className="sw-popup__place"><PinIcon size="sm" />{truncateText(slipway.nearestPlace!, 60)}</div>
+                                    )}
+                                    <div className="tag-list">
+                                        {slipway.source === 'OSM' && <span className="tag tag--osm">OSM</span>}
+                                        {hasValue(slipway.suitability) && <span className="tag tag--primary">{slipway.suitability}</span>}
+                                        {hasValue(slipway.rampLength) && <span className="tag">{slipway.rampLength}</span>}
+                                        {hasValue(slipway.charges) && <span className="tag">{truncateText(slipway.charges!, 30)}</span>}
+                                        {photoCount > 0 && <span className="tag tag--success"><CameraIcon size="sm" />{photoCount}</span>}
+                                    </div>
+                                    {slipway.description && slipway.description !== 'No description available' && (
+                                        <p className="sw-popup__desc">{slipway.description}</p>
+                                    )}
+                                    {hasValue(slipway.navigationalHazards) && (
+                                        <div className="sw-popup__hazard">
+                                            <AlertIcon size="sm" />
+                                            <span>{truncateText(slipway.navigationalHazards!, 120)}</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="sw-popup__footer">
+                                    <a className="btn btn--secondary btn--sm" href={googleMapsUrl(slipway)} target="_blank" rel="noopener noreferrer">
+                                        <MapIcon size="sm" /> Google Maps
+                                    </a>
+                                    <a className="btn btn--secondary btn--sm" href={streetViewUrl(slipway)} target="_blank" rel="noopener noreferrer">
+                                        <StreetViewIcon size="sm" /> Street View
+                                    </a>
+                                    <button className="btn btn--primary btn--sm" onClick={() => setSelectedSlipway(slipway)}>
+                                        Details <ChevronRightIcon size="sm" />
+                                    </button>
+                                </div>
+                            </div>
+                        </Popup>
+                    </Marker>
+                );
+    };
 
     // Default map center (UK) - will be updated when data loads
     const defaultCenter: [number, number] = [54.2361, -4.5481];
@@ -571,8 +681,16 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                                 <span className="toggle-track" aria-hidden="true" />
                                 <span className="toggle-label"><CameraIcon size="sm" /> Only slipways with photos</span>
                             </label>
+                            {!osmUnavailable && <label className="toggle">
+                                <input type="checkbox" checked={showOsm} onChange={(e) => setShowOsm(e.target.checked)} />
+                                <span className="toggle-track" aria-hidden="true" />
+                                <span className="toggle-label">
+                                    <LayersIcon size="sm" /> Include unverified OpenStreetMap slipways
+                                    {osmLoading && <span className="spinner" />}
+                                </span>
+                            </label>}
                             <div className="filter-panel-foot">
-                                <span><strong>{filteredSlipways.length.toLocaleString()}</strong> of {slipways.length.toLocaleString()} slipways</span>
+                                <span><strong>{filteredSlipways.length.toLocaleString()}</strong> of {allSlipways.length.toLocaleString()} slipways</span>
                                 <button className="btn btn--secondary btn--sm" onClick={clearFilters} disabled={activeFilterCount === 0}>
                                     <XIcon size="sm" /> Clear all filters
                                 </button>
@@ -594,9 +712,10 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                     <button className="btn" onClick={() => setAddSlipwayMode(false)}>Cancel</button>
                 </div>
             )}
-            {!dataLoading && !addSlipwayMode && (error || locateError || showSuccessMessage) && (
+            {!dataLoading && !addSlipwayMode && (error || locateError || osmError || showSuccessMessage) && (
                 <div className={`map-overlay map-banner ${showSuccessMessage ? '' : 'map-banner--error'}`} role="status">
-                    <AlertIcon /> {showSuccessMessage || locateError || `${error}. Showing sample data.`}
+                    <AlertIcon /> {showSuccessMessage || locateError || osmError || `${error}. Showing sample data.`}
+                    {osmError && <button className="btn" onClick={() => setOsmError(null)}>Dismiss</button>}
                     {locateError && <button className="btn" onClick={() => setLocateError(null)}>Dismiss</button>}
                 </div>
             )}
@@ -613,6 +732,9 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                         )}
                         <span className="legend"><span className="legend-dot legend-dot--photos" />Has photos</span>
                         <span className="legend"><span className="legend-dot legend-dot--plain" />No photos</span>
+                        {osmVisible && osmSlipways && (
+                            <span className="legend"><span className="legend-dot legend-dot--osm" />Unverified (OSM)</span>
+                        )}
                     </div>
                 </div>
             )}
@@ -663,52 +785,7 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                         } as any)}
                     />
                 )}
-                {filteredSlipways.map((slipway) => {
-                    const photoCount = slipway.imgs?.length || 0;
-
-                    return (
-                        <Marker
-                            key={slipway.id}
-                            position={[slipway.latitude, slipway.longitude] as LatLngExpression}
-                            ref={(m: any) => { if (m) markerRefs.current[slipway.id] = m; }}
-                            {...(photoCount > 0 ? { icon: iconWithPhotos } : {})}
-                        >
-                            <Popup {...({ autoPanPaddingTopLeft: [16, 96], autoPanPaddingBottomRight: [16, 90] } as any)}>
-                                <div className="sw-popup">
-                                    <div className="sw-popup__body">
-                                        <h3 className="sw-popup__title">{truncateText(slipway.name, 100)}</h3>
-                                        {hasValue(slipway.nearestPlace) && (
-                                            <div className="sw-popup__place"><PinIcon size="sm" />{truncateText(slipway.nearestPlace!, 60)}</div>
-                                        )}
-                                        <div className="tag-list">
-                                            {hasValue(slipway.suitability) && <span className="tag tag--primary">{slipway.suitability}</span>}
-                                            {hasValue(slipway.rampLength) && <span className="tag">{slipway.rampLength}</span>}
-                                            {hasValue(slipway.charges) && <span className="tag">{truncateText(slipway.charges!, 30)}</span>}
-                                            {photoCount > 0 && <span className="tag tag--success"><CameraIcon size="sm" />{photoCount}</span>}
-                                        </div>
-                                        {slipway.description && slipway.description !== 'No description available' && (
-                                            <p className="sw-popup__desc">{slipway.description}</p>
-                                        )}
-                                        {hasValue(slipway.navigationalHazards) && (
-                                            <div className="sw-popup__hazard">
-                                                <AlertIcon size="sm" />
-                                                <span>{truncateText(slipway.navigationalHazards!, 120)}</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="sw-popup__footer">
-                                        <a className="btn btn--secondary btn--sm" href={directionsUrl(slipway)} target="_blank" rel="noopener noreferrer">
-                                            <NavigationIcon size="sm" /> Directions
-                                        </a>
-                                        <button className="btn btn--primary btn--sm" onClick={() => setSelectedSlipway(slipway)}>
-                                            Details <ChevronRightIcon size="sm" />
-                                        </button>
-                                    </div>
-                                </div>
-                            </Popup>
-                        </Marker>
-                    );
-                })}
+                {filteredSlipways.map(renderMarker)}
             </MapContainer>
 
             {/* Slipway Details Modal */}
@@ -719,6 +796,17 @@ const Map: React.FC<MapProps> = ({ onNavigate, centerOnSlipway }) => {
                             slipwayId={selectedSlipway.id}
                             slipwayData={selectedSlipway}
                             variant="modal"
+                            onSaved={(saved, promotedFromOsmId) => {
+                                // Keep the map's copy current so popups and reopening the modal show the saved details
+                                setSlipways(prev => prev.some(s => s.id === saved.id)
+                                    ? prev.map(s => (s.id === saved.id ? saved : s))
+                                    : [...prev, saved]);
+                                if (promotedFromOsmId) {
+                                    // Swap the amber OSM pin for a Boatlaunch one and keep the modal on the new slipway
+                                    setOsmSlipways(prev => prev && prev.filter(o => o.id !== promotedFromOsmId));
+                                    setSelectedSlipway(saved);
+                                }
+                            }}
                             onNavigate={(view: string, data?: any) => {
                                 if (view === 'map') {
                                     setSelectedSlipway(null);

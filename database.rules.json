@@ -6,7 +6,40 @@
     },
     "slipwayDetails": {
       ".read": true,
-      ".write": "auth != null"
+      ".write": "auth != null",
+      "$slipwayId": {
+        ".validate": "data.exists() || newData.hasChildren(['createdBy', 'createdAt'])",
+        "createdBy": {
+          ".validate": "newData.hasChildren(['uid', 'name'])",
+          "uid": {
+            ".validate": "(!data.exists() && newData.val() == auth.uid) || newData.val() == data.val()"
+          },
+          "name": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 100"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "createdAt": {
+          ".validate": "(!data.exists() && newData.val() == now) || newData.val() == data.val()"
+        },
+        "updatedBy": {
+          ".validate": "newData.hasChildren(['uid', 'name'])",
+          "uid": {
+            ".validate": "newData.val() == auth.uid || newData.val() == data.val()"
+          },
+          "name": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 100"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "updatedAt": {
+          ".validate": "newData.val() == now || newData.val() == data.val()"
+        }
+      }
     },
     "latLngs": {
       ".read": true,
@@ -14,7 +47,48 @@
     },
     "photoMeta": {
       ".read": true,
-      ".write": "auth != null"
+      ".write": "auth != null",
+      "$imgId": {
+        "uploadedBy": {
+          ".validate": "newData.hasChildren(['uid', 'name'])",
+          "uid": {
+            ".validate": "(!data.exists() && newData.val() == auth.uid) || newData.val() == data.val()"
+          },
+          "name": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 100"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "uploadedAt": {
+          ".validate": "(!data.exists() && newData.val() == now) || newData.val() == data.val()"
+        }
+      }
+    },
+    "comments": {
+      ".read": true,
+      "$slipwayId": {
+        "$commentId": {
+          ".write": "auth != null && ((!data.exists() && newData.child('uid').val() == auth.uid) || (data.exists() && !newData.exists() && data.child('uid').val() == auth.uid))",
+          ".validate": "newData.hasChildren(['uid', 'userName', 'text', 'createdAt'])",
+          "uid": {
+            ".validate": "newData.val() == auth.uid"
+          },
+          "userName": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 100"
+          },
+          "text": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 2000"
+          },
+          "createdAt": {
+            ".validate": "newData.val() == now"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
     },
     "suggestions": {
       "$id": {
@@ -41,6 +115,13 @@
         "$other": {
           ".validate": false
         }
+      }
+    },
+    "osmSlipways": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'conorc1000@gmail.com'",
+      "$osmId": {
+        ".write": "auth != null && !newData.exists() && newData.parent().parent().child('slipwayDetails').child('osm_' + $osmId).exists()"
       }
     }
   }

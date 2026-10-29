@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { ref, get, set, update } from 'firebase/database';
+import { ref, get, set, update, serverTimestamp } from 'firebase/database';
 import { database } from '../firebase';
-import { Slipway, Comment } from '../types/Slipway';
+import { Slipway } from '../types/Slipway';
 import { useAuth } from '../hooks/useAuth';
 import { formatPhotoDate, generateImageId, ImageUrl, loadImgsWithMeta, PhotoMeta, THUMB_SUFFIX, validateImageFile } from '../services/fetchImgService';
 import { createThumbnail, readPhotoTakenAt } from '../services/photoProcessing';
 import proxyUploadService from '../services/proxyUploadService';
+import SlipwayComments from './SlipwayComments';
+import { OsmSourceSection } from './osmDetails';
+import { promotedIdFor, promoteOsmSlipway } from '../services/promoteOsmSlipway';
+import { attributionFor, formatShortDate } from '../services/attribution';
 import {
     AlertIcon, ArrowLeftIcon, CameraIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, EditIcon, GlobeIcon,
-    CopyIcon, LayersIcon, NavigationIcon, PhoneIcon, PinIcon, RulerIcon, TagIcon, TruckIcon, UploadIcon, XIcon
+    CopyIcon, LayersIcon, MapIcon, PhoneIcon, PinIcon, RulerIcon, TagIcon, TruckIcon, UploadIcon, XIcon, StreetViewIcon
 } from './Icons';
 
 interface SlipwayViewProps {
@@ -16,9 +20,12 @@ interface SlipwayViewProps {
     slipwayData?: Slipway;
     onNavigate?: (view: string, data?: any) => void;
     variant?: 'page' | 'modal';
+    // Called after every saved edit or photo so the parent's copy stays current; promotedFromOsmId is set
+    // when that save turned an OSM import into a Boatlaunch slipway (which changes its ID)
+    onSaved?: (slipway: Slipway, promotedFromOsmId?: string) => void;
 }
 
-const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNavigate, variant = 'page' }) => {
+const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNavigate, variant = 'page', onSaved }) => {
     const [slipway, setSlipway] = useState<Slipway | null>(null);
     const [imageUrls, setImageUrls] = useState<ImageUrl[]>([]);
     const [loading, setLoading] = useState(true);
@@ -26,9 +33,6 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
     const [uploadProgress, setUploadProgress] = useState<number>(0);
     const [isUploading, setIsUploading] = useState<boolean>(false);
-    const [newComment, setNewComment] = useState<string>('');
-    const [newRating, setNewRating] = useState<number>(0);
-    const [isSubmittingComment, setIsSubmittingComment] = useState<boolean>(false);
     const [editedSlipway, setEditedSlipway] = useState<Slipway | null>(null);
     const [saving, setSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -37,48 +41,6 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
     const [coordsCopied, setCoordsCopied] = useState(false);
 
     const { user } = useAuth();
-
-    // Handle comment submission
-    const handleSubmitComment = async (commentText: string, rating?: number) => {
-        if (!commentText.trim() || !user || isSubmittingComment) return;
-
-        try {
-            setIsSubmittingComment(true);
-
-            // Create new comment object
-            const comment: Comment = {
-                id: Date.now().toString(), // Simple ID generation
-                userId: user.uid,
-                userName: user.displayName || user.email || 'Anonymous',
-                userEmail: user.email || '',
-                text: commentText.trim(),
-                timestamp: Date.now(),
-                ...(rating && rating > 0 && { rating: rating })
-            };
-
-            // Update local state immediately for better UX
-            const updatedSlipway = {
-                ...slipway!,
-                comments: [...(slipway!.comments || []), comment]
-            };
-            setSlipway(updatedSlipway);
-
-            // Update Firebase
-            const commentsRef = ref(database, `slipwayDetails/${slipwayId}/comments`);
-            const updatedComments = [...(slipway!.comments || []), comment];
-            await set(commentsRef, updatedComments);
-
-            // Reset form
-            setNewComment('');
-            setNewRating(0);
-
-        } catch (error) {
-            console.error('Error submitting comment:', error);
-            alert('Failed to submit comment. Please try again.');
-        } finally {
-            setIsSubmittingComment(false);
-        }
-    };
 
     useEffect(() => {
         const initializeSlipwayData = async () => {
@@ -123,6 +85,10 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                         longitude: parseFloat(coords[1]),
                         facilities: details.Facilities ? details.Facilities.split(', ').filter((f: string) => f.trim()) : [],
                         imgs: details.imgs || details.ImageIds || [],
+                        createdBy: details.createdBy,
+                        createdAt: details.createdAt,
+                        updatedBy: details.updatedBy,
+                        updatedAt: details.updatedAt,
                         charges: details.Charges || '',
                         nearestPlace: details.NearestPlace || '',
                         rampType: details.RampType || '',
@@ -209,6 +175,16 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             setSaving(true);
             setError(null);
 
+            // First edit of an OSM import creates the Boatlaunch slipway instead of updating one
+            if (slipway.osm) {
+                const promoted = await promoteOsmSlipway({ ...editedSlipway, osm: slipway.osm }, user);
+                setSlipway(promoted);
+                setEditedSlipway(promoted);
+                setIsEditing(false);
+                onSaved?.(promoted, slipway.osm.id);
+                return;
+            }
+
             // Update Firebase with edited data
             const detailsRef = ref(database, `slipwayDetails/${slipwayId}`);
             const updatedDetails = {
@@ -227,13 +203,19 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                 NavigationalHazards: editedSlipway.navigationalHazards,
                 RampLength: editedSlipway.rampLength,
                 UpperArea: editedSlipway.upperArea,
-                Website: editedSlipway.website
+                Website: editedSlipway.website,
+                updatedBy: attributionFor(user),
+                updatedAt: serverTimestamp()
             };
 
-            await set(detailsRef, updatedDetails);
+            // update() rather than set(): only the edited fields change, so imgs, idKey and other
+            // fields the form doesn't manage are preserved
+            await update(detailsRef, updatedDetails);
 
             // Update local state
-            setSlipway(editedSlipway);
+            const savedSlipway = { ...editedSlipway, updatedBy: updatedDetails.updatedBy, updatedAt: Date.now() };
+            setSlipway(savedSlipway);
+            onSaved?.(savedSlipway);
             setIsEditing(false);
         } catch (err) {
             console.error('Error saving slipway data:', err);
@@ -258,7 +240,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
 
     const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (!file) return;
+        if (!file || !user) return;
 
         try {
             // Validate file
@@ -271,8 +253,8 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             setIsUploading(true);
             setUploadProgress(0);
 
-            // Generate new image ID
-            const newImageId = generateImageId(slipwayId);
+            // Generate new image ID; an OSM import's photo belongs to the slipway it's about to become
+            const newImageId = generateImageId(slipway?.osm ? promotedIdFor(slipway.osm) : slipwayId);
 
             // Upload to S3 via proxy
             const uploadUrl = await proxyUploadService(
@@ -295,7 +277,11 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
             // Handle successful upload
             if (uploadUrl && slipway) {
                 // Thumbnail and capture date are nice-to-haves; the photo is saved even if they fail
-                const meta: PhotoMeta = {};
+                // uploadedAt is a server-timestamp placeholder until Firebase resolves it to a number
+                const meta: Omit<PhotoMeta, 'uploadedAt'> & { uploadedAt: object } = {
+                    uploadedBy: attributionFor(user),
+                    uploadedAt: serverTimestamp()
+                };
                 const takenAt = await readPhotoTakenAt(file);
                 if (takenAt) meta.takenAt = takenAt;
                 try {
@@ -305,11 +291,22 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                 } catch (thumbError) {
                     console.warn('Thumbnail upload failed, gallery will use the full-size photo:', thumbError);
                 }
-                if (Object.keys(meta).length > 0) {
-                    await set(ref(database, `photoMeta/${newImageId}`), meta);
-                }
+                await set(ref(database, `photoMeta/${newImageId}`), meta);
 
                 const updatedImgs = [...(slipway.imgs || []), newImageId];
+
+                // First photo on an OSM import creates the Boatlaunch slipway
+                if (slipway.osm) {
+                    const promoted = await promoteOsmSlipway({ ...slipway, imgs: updatedImgs }, user);
+                    setSlipway(promoted);
+                    setEditedSlipway(promoted);
+                    onSaved?.(promoted, slipway.osm.id);
+                    setIsUploading(false);
+                    setUploadProgress(0);
+                    event.target.value = '';
+                    return;
+                }
+
                 const updatedSlipway = {
                     ...slipway,
                     imgs: updatedImgs
@@ -322,6 +319,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                 // Update only the imgs field in Firebase to preserve other data
                 const slipwayRef = ref(database, `slipwayDetails/${slipwayId}`);
                 await update(slipwayRef, { imgs: updatedImgs });
+                onSaved?.(updatedSlipway);
 
                 console.log('Image uploaded and Firebase updated:', newImageId);
 
@@ -618,11 +616,19 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                     <div className="btn-row sv-actions">
                         <a
                             className="btn btn--primary"
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${slipway.latitude},${slipway.longitude}`}
+                            href={`https://www.google.com/maps/search/?api=1&query=${slipway.latitude},${slipway.longitude}`}
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            <NavigationIcon size="sm" /> Directions
+                            <MapIcon size="sm" /> Open in Google Maps
+                        </a>
+                        <a
+                            className="btn btn--secondary"
+                            href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${slipway.latitude},${slipway.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            <StreetViewIcon size="sm" /> Street View
                         </a>
                         {slipway.mobilePhoneNumber && (
                             <a className="btn btn--secondary" href={`tel:${slipway.mobilePhoneNumber}`}>
@@ -652,6 +658,8 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                             </div>
                         </div>
                     )}
+
+                    {slipway.osm && <OsmSourceSection osm={slipway.osm} />}
 
                     {/* Photos */}
                     <section className="sv-section">
@@ -772,7 +780,18 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                         </section>
                     </div>
 
-                    <div className="sv-meta">ID <code>{slipwayId}</code></div>
+                    {/* Comments wait until promotion so they aren't stranded on the temporary OSM ID */}
+                    {!slipway.osm && <SlipwayComments slipwayId={slipwayId} onNavigate={onNavigate} />}
+
+                    <div className="sv-meta">
+                        {slipway.createdBy && slipway.createdAt && (
+                            <span>Added by {slipway.createdBy.name} on {formatShortDate(slipway.createdAt)} · </span>
+                        )}
+                        {slipway.updatedBy && slipway.updatedAt && (
+                            <span>Last edited by {slipway.updatedBy.name} on {formatShortDate(slipway.updatedAt)} · </span>
+                        )}
+                        {slipway.osm ? <>OSM <code>{slipway.osm.osmId}</code></> : <>ID <code>{slipwayId}</code></>}
+                    </div>
                 </>
             )}
 
@@ -806,6 +825,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                         {imageUrls[selectedImageIndex] && formatPhotoDate(imageUrls[selectedImageIndex]) && (
                             <> · {formatPhotoDate(imageUrls[selectedImageIndex])}</>
                         )}
+                        {imageUrls[selectedImageIndex]?.uploadedBy && <> · by {imageUrls[selectedImageIndex].uploadedBy}</>}
                     </div>
                 </div>
             )}

@@ -47,6 +47,7 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@types/leaflet": "^1.9.8",
     "ajv": "^8.17.1",
+    "exceljs": "^4.4.0",
     "sharp": "^0.33.5"
   }
 }

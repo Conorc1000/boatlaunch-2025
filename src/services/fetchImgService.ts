@@ -1,6 +1,7 @@
 // TypeScript version of S3 image fetch service
 import { ref, get } from 'firebase/database';
 import { database } from '../firebase';
+import { Attribution } from './attribution';
 
 export interface ImageUrl {
     src: string;
@@ -8,12 +9,15 @@ export interface ImageUrl {
     thumbSrc?: string;
     takenAt?: number; // From the photo's EXIF capture date
     addedAt?: number; // Upload time encoded in the image ID
+    uploadedBy?: string; // Uploader's display name, for photos uploaded since attribution was introduced
 }
 
 // Per-image metadata stored at photoMeta/{imageId}
 export interface PhotoMeta {
     takenAt?: number;
     thumb?: boolean;
+    uploadedBy?: Attribution;
+    uploadedAt?: number;
 }
 
 const bucketName = 'boatlaunchphotos'; // Match the actual S3 bucket name
@@ -41,7 +45,8 @@ export const fetchImgsService = (rawImgIds: unknown[] | undefined, meta: Record<
         id: imgId,
         thumbSrc: meta[imgId]?.thumb ? prefix + imgId + THUMB_SUFFIX : undefined,
         takenAt: meta[imgId]?.takenAt,
-        addedAt: getImageIdTimestamp(imgId)
+        addedAt: getImageIdTimestamp(imgId),
+        uploadedBy: meta[imgId]?.uploadedBy?.name
     }));
 };
 

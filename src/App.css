@@ -1532,6 +1532,7 @@ a.contact-tile:hover {
 
 .sw-popup__footer {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     padding: 12px 16px;
     border-top: 1px solid var(--border);
@@ -1541,6 +1542,11 @@ a.contact-tile:hover {
 
 .sw-popup__footer .btn {
     flex: 1;
+}
+
+/* Directions + Street View share a row; Details spans the full width below */
+.sw-popup__footer .btn--primary {
+    flex-basis: 100%;
 }
 
 /* ==========================================================================
@@ -2325,4 +2331,138 @@ label.btn.is-disabled {
     .page-head {
         flex-direction: column;
     }
+}
+
+/* ==========================================================================
+   Comments
+   ========================================================================== */
+.comment-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.comment-form-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.comment-error {
+    color: var(--danger);
+    font-size: 13px;
+}
+
+.comment-signin {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+.comment-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.comment {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.comment-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-bottom: 4px;
+}
+
+.comment-author {
+    font-size: 14px;
+    color: var(--text);
+}
+
+.comment-date {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.comment-delete {
+    margin-left: auto;
+    font-size: 12px;
+}
+
+.comment-text {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+    white-space: pre-line;
+    word-break: break-word;
+}
+
+/* Unverified OpenStreetMap imports */
+.tag--osm {
+    background: var(--warning-soft);
+    border-color: var(--warning-border);
+    color: var(--warning-text);
+}
+
+.legend-dot--osm {
+    background: #d97706;
+}
+
+.osm-details {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 10px;
+    margin: 8px 0 0;
+    font-size: 13px;
+}
+
+.osm-details dt {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.osm-details dd {
+    margin: 0;
+    color: var(--text);
+    word-break: break-word;
+}
+
+.osm-details code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+}
+
+.osm-details-empty,
+.osm-details-meta {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.osm-raw-tags {
+    margin-top: 8px;
+    font-size: 12px;
+}
+
+.osm-raw-tags summary {
+    cursor: pointer;
+    color: var(--primary);
+    font-weight: 500;
+}
+
+.osm-raw-tags .osm-details {
+    max-height: 160px;
+    overflow-y: auto;
 }

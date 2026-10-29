@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
-import { ref, set, push } from 'firebase/database';
+import { ref, set, push, serverTimestamp } from 'firebase/database';
 import { database } from '../firebase';
 import { useAuth } from '../hooks/useAuth';
+import { attributionFor } from '../services/attribution';
 import { AlertIcon, ArrowLeftIcon, CheckIcon, PinIcon } from './Icons';
 import 'leaflet/dist/leaflet.css';
 
@@ -112,7 +113,8 @@ const AddSlipway: React.FC<AddSlipwayProps> = ({ initialLocation, onNavigate }) 
                 Website: formData.website.trim(),
                 NavigationalHazards: formData.navigationalHazards.trim(),
                 imgs: [], // Start with no images
-                comments: [] // Start with no comments
+                createdBy: attributionFor(user),
+                createdAt: serverTimestamp()
             };
 
             await set(ref(database, `slipwayDetails/${slipwayId}`), slipwayDetails);
