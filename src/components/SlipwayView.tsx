@@ -7,11 +7,13 @@ import { formatPhotoDate, generateImageId, ImageUrl, loadImgsWithMeta, PhotoMeta
 import { createThumbnail, readPhotoTakenAt } from '../services/photoProcessing';
 import proxyUploadService from '../services/proxyUploadService';
 import SlipwayComments from './SlipwayComments';
+import SuggestRemoval from './SuggestRemoval';
 import { OsmSourceSection } from './osmDetails';
 import { promotedIdFor, promoteOsmSlipway } from '../services/promoteOsmSlipway';
 import { attributionFor, formatShortDate } from '../services/attribution';
+import { archivePhoto } from '../services/archivePhoto';
 import {
-    AlertIcon, ArrowLeftIcon, CameraIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, EditIcon, GlobeIcon,
+    AlertIcon, ArchiveIcon, ArrowLeftIcon, CameraIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, EditIcon, GlobeIcon,
     CopyIcon, LayersIcon, MapIcon, PhoneIcon, PinIcon, RulerIcon, TagIcon, TruckIcon, UploadIcon, XIcon, StreetViewIcon
 } from './Icons';
 
@@ -39,6 +41,7 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
     // Raw text for the facilities field so commas survive while typing
     const [facilitiesText, setFacilitiesText] = useState('');
     const [coordsCopied, setCoordsCopied] = useState(false);
+    const [archiving, setArchiving] = useState(false);
 
     const { user } = useAuth();
 
@@ -338,6 +341,28 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
 
         // Reset file input
         event.target.value = '';
+    };
+
+    const handleArchivePhoto = async () => {
+        const image = selectedImageIndex !== null ? imageUrls[selectedImageIndex] : undefined;
+        if (!image || !slipway || !user || slipway.osm) return;
+        if (!window.confirm('Remove this photo from the slipway?')) return;
+
+        try {
+            setArchiving(true);
+            const remaining = await archivePhoto(slipwayId, slipway.imgs || [], image.id, user);
+            const updatedSlipway = { ...slipway, imgs: remaining, updatedBy: attributionFor(user), updatedAt: Date.now() };
+            setImageUrls(prev => prev.filter(img => img.id !== image.id));
+            setSelectedImageIndex(remaining.length === 0 ? null : Math.min(selectedImageIndex!, remaining.length - 1));
+            setSlipway(updatedSlipway);
+            setEditedSlipway(updatedSlipway);
+            onSaved?.(updatedSlipway);
+        } catch (archiveError) {
+            console.error('Error removing photo:', archiveError);
+            alert('Could not remove the photo. Please try again.');
+        } finally {
+            setArchiving(false);
+        }
     };
 
     const handleFacilitiesChange = (text: string) => {
@@ -783,6 +808,8 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                     {/* Comments wait until promotion so they aren't stranded on the temporary OSM ID */}
                     {!slipway.osm && <SlipwayComments slipwayId={slipwayId} onNavigate={onNavigate} />}
 
+                    <SuggestRemoval slipwayId={slipwayId} slipwayName={slipway.name} onNavigate={onNavigate} />
+
                     <div className="sv-meta">
                         {slipway.createdBy && slipway.createdAt && (
                             <span>Added by {slipway.createdBy.name} on {formatShortDate(slipway.createdAt)} · </span>
@@ -810,6 +837,15 @@ const SlipwayView: React.FC<SlipwayViewProps> = ({ slipwayId, slipwayData, onNav
                     <button className="lightbox-btn lightbox-btn--close" onClick={closeImageModal} aria-label="Close photo">
                         <XIcon />
                     </button>
+                    {user && !slipway.osm && (
+                        <button
+                            className="lightbox-remove"
+                            onClick={handleArchivePhoto}
+                            disabled={archiving}
+                        >
+                            <ArchiveIcon size="sm" /> {archiving ? 'Removing…' : 'Remove photo'}
+                        </button>
+                    )}
                     {imageUrls.length > 1 && (
                         <>
                             <button className="lightbox-btn lightbox-btn--prev" onClick={() => navigateImage('prev')} aria-label="Previous photo">

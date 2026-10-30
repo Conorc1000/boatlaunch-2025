@@ -15,3 +15,7 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# 08:00 UTC on the 1st of each month: emails last month's activity
+[functions."monthly-summary"]
+  schedule = "0 8 1 * *"

@@ -22,6 +22,8 @@ export const AnchorIcon = make(<><circle cx="12" cy="5" r="3" /><path d="M12 22V
 export const SearchIcon = make(<><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></>);
 export const FilterIcon = make(<path d="M3 6h18M7 12h10M10 18h4" />);
 export const PlusIcon = make(<path d="M12 5v14M5 12h14" />);
+export const ArchiveIcon = make(<><rect x="2" y="3" width="20" height="5" rx="1" /><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4" /></>);
+export const ChartIcon = make(<path d="M3 3v18h18M8 17v-5M13 17V8M18 17v-9" />);
 export const XIcon = make(<path d="M18 6 6 18M6 6l12 12" />);
 export const MenuIcon = make(<path d="M4 6h16M4 12h16M4 18h16" />);
 export const PinIcon = make(<><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></>);

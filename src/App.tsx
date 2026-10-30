@@ -4,10 +4,12 @@ import SlipwayView from './components/SlipwayView';
 import AddSlipway from './components/AddSlipway';
 import Feedback from './components/Feedback';
 import Donate from './components/Donate';
+import AdminDashboard from './components/AdminDashboard';
+import { isAdmin } from './config/admin';
 import { useAuth } from './hooks/useAuth';
 import {
     AnchorIcon, MenuIcon, XIcon, MapIcon, InfoIcon, MailIcon, LogOutIcon, UserIcon,
-    CheckIcon, AlertIcon, PinIcon, CameraIcon, NavigationIcon, ArrowLeftIcon, MessageIcon, CoffeeIcon
+    CheckIcon, AlertIcon, PinIcon, CameraIcon, NavigationIcon, ArrowLeftIcon, MessageIcon, CoffeeIcon, ChartIcon
 } from './components/Icons';
 import './App.css';
 
@@ -436,6 +438,8 @@ function App() {
                 return <Feedback onNavigate={handleMenuClick} />;
             case 'donate':
                 return <Donate />;
+            case 'admin':
+                return <AdminDashboard onNavigate={handleMenuClick} />;
             case 'contact':
                 return (
                     <div className="page page--narrow">
@@ -568,6 +572,14 @@ function App() {
                                 </button>
                                 <div className="menu-divider" />
                             </div>
+                            {isAdmin(user) && (
+                                <button
+                                    className={`menu-item ${activeView === 'admin' ? 'active' : ''}`}
+                                    onClick={() => handleMenuClick('admin')}
+                                >
+                                    <ChartIcon />Dashboard
+                                </button>
+                            )}
                             {user ? (
                                 <button className="menu-item menu-item--danger" onClick={handleLogout}>
                                     <LogOutIcon />Sign out

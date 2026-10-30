@@ -91,6 +91,7 @@
       }
     },
     "suggestions": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'conorc1000@gmail.com'",
       "$id": {
         ".write": "!data.exists()",
         ".validate": "newData.hasChildren(['type', 'message', 'createdAt'])",
@@ -115,6 +116,48 @@
         "$other": {
           ".validate": false
         }
+      }
+    },
+    "removalRequests": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'conorc1000@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'conorc1000@gmail.com'",
+      "$slipwayId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid == $uid",
+          ".write": "auth != null && auth.uid == $uid",
+          ".validate": "newData.hasChildren(['reason', 'slipwayName', 'requestedBy', 'createdAt'])",
+          "reason": { ".validate": "newData.isString() && newData.val().matches(/^(closed|private|not_here|duplicate|unsafe|other)$/)" },
+          "note": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 1000" },
+          "slipwayName": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "requestedBy": {
+            ".validate": "newData.hasChildren(['uid', 'name'])",
+            "uid": { ".validate": "newData.val() == auth.uid" },
+            "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 100" },
+            "email": { ".validate": "newData.val() == auth.token.email" },
+            "$other": { ".validate": false }
+          },
+          "createdAt": { ".validate": "newData.val() == now" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
+    "archivedPhotos": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'conorc1000@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'conorc1000@gmail.com'",
+      "$imgId": {
+        ".write": "auth != null && !data.exists()",
+        ".validate": "newData.hasChildren(['slipwayId', 'position', 'archivedBy', 'archivedAt']) && newData.parent().parent().child('slipwayDetails').child(newData.child('slipwayId').val()).exists()",
+        "slipwayId": { ".validate": "newData.isString()" },
+        "position": { ".validate": "newData.isNumber()" },
+        "archivedBy": {
+          ".validate": "newData.hasChildren(['uid', 'name'])",
+          "uid": { ".validate": "newData.val() == auth.uid" },
+          "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 100" },
+          "email": { ".validate": "newData.val() == auth.token.email" },
+          "$other": { ".validate": false }
+        },
+        "archivedAt": { ".validate": "newData.val() == now" },
+        "$other": { ".validate": false }
       }
     },
     "osmSlipways": {
