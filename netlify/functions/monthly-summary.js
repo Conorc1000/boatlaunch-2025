@@ -2,7 +2,7 @@
 // comments, feedback and removal requests. Scheduled in netlify.toml for the 1st of each month.
 //
 // Netlify environment variables:
-//   FIREBASE_SERVICE_ACCOUNT  base64 of a service-account key JSON (Firebase console > Project settings > Service accounts)
+//   FIREBASE_SERVICE_ACCOUNT  a service-account key JSON, as-is or base64 (Firebase console > Project settings > Service accounts)
 //   RESEND_API_KEY            from resend.com
 //   SUMMARY_EMAIL_TO          optional, defaults to conorc1000@gmail.com
 //   SUMMARY_EMAIL_FROM        optional, defaults to Resend's test sender (only delivers to your Resend account's email)
@@ -27,7 +27,15 @@ const REMOVAL_REASONS = {
 const database = () => {
     if (!admin.apps.length) {
         if (!process.env.FIREBASE_SERVICE_ACCOUNT) throw new Error('FIREBASE_SERVICE_ACCOUNT is not set (base64 of the service-account key JSON)');
-        const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8'));
+        // Accept the key JSON pasted as-is or base64-encoded
+        const raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+        const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
+        let serviceAccount;
+        try {
+            serviceAccount = JSON.parse(json);
+        } catch {
+            throw new Error('FIREBASE_SERVICE_ACCOUNT is neither the key JSON nor its base64; paste the key file contents again');
+        }
         admin.initializeApp({ credential: admin.credential.cert(serviceAccount), databaseURL: DATABASE_URL });
     }
     return admin.database();
